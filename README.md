@@ -15,17 +15,6 @@ It is made only for the **KanyevaUnreleasder** channel. Nothing is uploaded anyw
 - Download as PNG or JPG at 5000x2812 (template size), 4K, Full HD or 1280x720 (YouTube). JPG at 1920 wide or smaller is auto-compressed under YouTube's 2 MB limit
 - Save and reopen projects
 
-## Put it online with GitHub Pages
-
-1. Create a new repository on GitHub (for example `kanyeva-thumbnail-generator`).
-2. Upload **everything inside this folder** (`index.html`, `css`, `js`, `assets`, `.nojekyll`, `README.md`) to the repository root.
-3. Go to **Settings > Pages**. Under *Build and deployment*, set *Source* to **Deploy from a branch**, pick the `main` branch and the `/ (root)` folder, then save.
-4. After a minute your site is live at `https://YOUR-USERNAME.github.io/kanyeva-thumbnail-generator/`.
-
-> Open the site through that link (or a local server), not by double-clicking `index.html`.
-> Browsers block exporting images from pages opened straight from a file.
-> To test locally: run `python3 -m http.server` in this folder and visit `http://localhost:8000`.
-
 ## Add your own album cover presets
 
 1. Put a square `.png` or `.jpg` into `assets/presets/`.
