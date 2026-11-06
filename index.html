@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KanyevaUnreleasder Thumbnail Generator (Beta)</title>
+<meta name="description" content="The official thumbnail generator for the KanyevaUnreleasder channel. Beta version.">
+<meta name="theme-color" content="#14161c">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Interface fonts -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap">
+<!-- Thumbnail fonts (split in groups so one failing request never breaks the others) -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Arimo:ital,wght@0,400..700;1,400..700&family=Inter:wght@100..900&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Poppins:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,700&family=Roboto:ital,wght@0,400;0,500;0,700;0,900;1,400;1,700&family=Raleway:ital,wght@0,100..900;1,100..900&family=Space+Grotesk:wght@300..700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Bebas+Neue&family=Archivo+Black&family=Oswald:wght@200..700&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Bangers&family=Permanent+Marker&family=Pacifico&family=Russo+One&family=Righteous&display=swap">
+
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="welcome">
+  <div class="brandrow">
+    <img class="brand-logo" src="assets/logo.png" alt="KanyevaUnreleasder logo">
+    <span class="tape" title="This tool is in beta">Beta</span>
+  </div>
+  <h1>Welcome to the KanyevaUnreleasder Thumbnail Generator</h1>
+  <p class="lede">Made only for the KanyevaUnreleasder channel. Pick an album cover, type your titles, then drag, resize and recolor everything until the thumbnail is right.</p>
+  <p class="betanote"><strong>Beta version 0.1.</strong> Updates are on the way, so expect new features and the occasional rough edge.</p>
+</header>
+
+<main class="app">
+  <section class="stage" aria-label="Thumbnail preview">
+    <div class="toolbar" role="toolbar" aria-label="Editing tools">
+      <button class="btn icon" id="undoBtn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled></button>
+      <button class="btn icon" id="redoBtn" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled></button>
+      <span class="sep"></span>
+      <button class="btn" id="guidesBtn" aria-pressed="false" title="Show center lines and the area YouTube covers with the video length badge"></button>
+      <button class="btn" id="resetBtn" title="Reset everything to the template"></button>
+      <span class="hint">Drag to move. Corner handles resize. The round handle rotates. Arrow keys nudge.</span>
+    </div>
+
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="stage" width="1920" height="1080" aria-label="Thumbnail canvas"></canvas>
+      <div class="dropveil" id="dropVeil">Drop an image to use it as the album cover</div>
+    </div>
+
+    <div class="exportbar">
+      <div class="export-opts">
+        <label class="mini">Size
+          <select id="expSize">
+            <option value="5000">5000 × 2812 (template size)</option>
+            <option value="3840">3840 × 2160 (4K)</option>
+            <option value="1920">1920 × 1080 (Full HD)</option>
+            <option value="1280" selected>1280 × 720 (YouTube)</option>
+          </select>
+        </label>
+        <label class="mini">Format
+          <select id="expFmt">
+            <option value="png" selected>PNG (keeps transparency)</option>
+            <option value="jpg">JPG (smaller file)</option>
+          </select>
+        </label>
+      </div>
+      <div class="export-actions">
+        <button class="btn" id="saveProject" title="Save your work to a file you can open later"></button>
+        <button class="btn" id="openProject" title="Open a saved project file"></button>
+        <button class="btn primary" id="downloadBtn"></button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="inspector" aria-label="Layers and settings">
+    <div class="layers-head">
+      <h2>Layers</h2>
+      <button class="btn small" id="addTextBtn"></button>
+    </div>
+    <ul class="layers" id="layers"></ul>
+    <div class="props" id="props"></div>
+  </aside>
+</main>
+
+<footer class="foot">KanyevaUnreleasder Thumbnail Generator, beta 0.1. Everything runs in your browser, nothing is uploaded.</footer>
+
+<!-- Preset gallery -->
+<div class="modal" id="presetModal" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="presetTitle">
+    <div class="dialog-head">
+      <h2 id="presetTitle">Choose an album cover</h2>
+      <button class="btn icon" data-close aria-label="Close"></button>
+    </div>
+    <div class="preset-grid" id="presetGrid"></div>
+    <p class="dialog-foot">Want your own presets here? Drop PNG files into <code>assets/presets</code> and list them in <code>js/presets.js</code>.</p>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<input type="file" id="coverFile" accept="image/png,image/jpeg,image/webp" hidden>
+<input type="file" id="bgFile" accept="image/png,image/jpeg,image/webp" hidden>
+<input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2" hidden>
+<input type="file" id="projectFile" accept=".json,application/json" hidden>
+
+<noscript><p style="padding:2rem;color:#fff">This generator needs JavaScript. Please enable it and reload.</p></noscript>
+
+<script src="js/presets.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
