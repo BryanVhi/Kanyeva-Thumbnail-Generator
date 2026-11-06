@@ -12,12 +12,5 @@
 */
 window.KU_PRESETS = [
   { name: 'Template sample', src: 'assets/presets/template-sample.jpg' },
-  { name: 'Neon dusk',       src: 'assets/presets/neon-dusk.jpg' },
-  { name: 'Gold record',     src: 'assets/presets/gold-record.jpg' },
-  { name: 'Blueprint',       src: 'assets/presets/blueprint.jpg' },
-  { name: 'My Beautiful Dark Twisted Fantasy V1',           src: 'assets/presets/MBDTF_v1.png' },
-  { name: 'Mint tape',       src: 'assets/presets/mint-tape.jpg' },
-  { name: 'Violet room',     src: 'assets/presets/violet-room.jpg' },
-  { name: 'Concrete',        src: 'assets/presets/concrete.jpg' },
-  { name: 'Split pop',       src: 'assets/presets/split-pop.jpg' }
+  { name: 'My Beautiful Dark Twisted Fantasy V1', src: 'assets/presets/MBDTF_v1.png' },
 ];
