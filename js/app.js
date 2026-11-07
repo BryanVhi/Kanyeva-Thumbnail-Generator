@@ -1,4 +1,4 @@
-/* KanyevaUnreleasder Thumbnail Generator, beta 0.1
+/* KanyevaUnreleasder Thumbnail Generator, beta 0.2
    Everything runs in the browser. The template geometry comes from
    Kanyeva_Thumbnail_Template_V47.psd (5000 x 2812). */
 (() => {
@@ -11,10 +11,11 @@ const W = 5000, H = 2812;              // template size in px
 const PREVIEW_W = 1920;                // on-screen canvas resolution
 const PS = PREVIEW_W / W;              // preview scale
 const YT_LIMIT = 2 * 1024 * 1024;      // YouTube thumbnail size limit
-const FILTER_OK = (typeof CanvasRenderingContext2D !== 'undefined') && ('filter' in CanvasRenderingContext2D.prototype) && !window.__KU_NO_FILTER;
+const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const $ = (s, root = document) => root.querySelector(s);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
 const deg = r => r * 180 / Math.PI;
 const rad = d => d * Math.PI / 180;
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -22,6 +23,29 @@ const rgba = (hex, a) => {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 };
+
+/* colour maths */
+function hexToRgb(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function rgbToHex(r, g, b) { return '#' + [r, g, b].map(v => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0')).join(''); }
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+  let hh = 0, s = 0;
+  if (mx !== mn) {
+    const d = mx - mn;
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    hh = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    hh /= 6;
+  }
+  return [hh, s, l];
+}
+function hslToRgb(hh, s, l) {
+  if (s === 0) { const v = l * 255; return [v, v, v]; }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+  const f = t => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
+  return [f(hh + 1 / 3) * 255, f(hh) * 255, f(hh - 1 / 3) * 255];
+}
+const hslHex = (hh, s, l) => rgbToHex(...hslToRgb(((hh % 1) + 1) % 1, clamp(s, 0, 1), clamp(l, 0, 1)));
 
 function h(tag, attrs = {}, ...kids) {
   const e = document.createElement(tag);
@@ -55,13 +79,20 @@ const ICONS = {
   download: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 19h16"/>',
   save: '<path d="M5 3h11l3 3v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
   folder: '<path d="M3 6a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/>',
-  grid: '<path d="M12 3v18M3 12h18"/><rect x="3" y="3" width="18" height="18" rx="2"/>',
+  grid: '<path d="M9 3v18M15 3v18M3 9h18M3 15h18"/><rect x="3" y="3" width="18" height="18" rx="2"/>',
+  ruler: '<path d="m3 17 14-14 4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/>',
+  magnet: '<path d="M6 3v9a6 6 0 0 0 12 0V3"/><path d="M6 8h4M14 8h4"/>',
+  sliders: '<path d="M4 6h8M18 6h2M4 12h2M12 12h8M4 18h10M20 18h0"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
   reset: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
   alignL: '<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>',
   alignC: '<path d="M4 6h16M7 10h10M4 14h16M7 18h10"/>',
   alignR: '<path d="M4 6h16M10 10h10M4 14h16M10 18h10"/>',
   type: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
-  close: '<path d="M6 6l12 12M18 6 6 18"/>'
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  play: '<path d="M7 5v14l12-7z"/>',
+  pause: '<path d="M8 5v14M16 5v14"/>',
+  shuffle: '<path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>',
+  drop: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z"/>'
 };
 function icon(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -69,37 +100,25 @@ function icon(name) {
 function label(iconName, text) { return `${iconName ? icon(iconName) : ''}${text ? `<span>${text}</span>` : ''}`; }
 
 /* =====================================================================
-   Fonts
+   Fonts: Helvetica Rounded Bold (from assets/) plus anything the user uploads
    ===================================================================== */
-const FONTS = [
-  { name: 'Arimo', note: 'template default', weights: [400, 700] },
-  { name: 'Inter', weights: [300, 400, 500, 600, 700, 800, 900] },
-  { name: 'Montserrat', weights: [400, 500, 600, 700, 800, 900] },
-  { name: 'Poppins', weights: [400, 500, 600, 700, 800, 900] },
-  { name: 'Roboto', weights: [400, 500, 700, 900] },
-  { name: 'Raleway', weights: [400, 500, 600, 700, 800, 900] },
-  { name: 'Space Grotesk', weights: [400, 500, 600, 700] },
-  { name: 'Oswald', weights: [400, 500, 600, 700] },
-  { name: 'Anton', weights: [400] },
-  { name: 'Bebas Neue', weights: [400] },
-  { name: 'Archivo Black', weights: [400] },
-  { name: 'Russo One', weights: [400] },
-  { name: 'Righteous', weights: [400] },
-  { name: 'Bangers', weights: [400] },
-  { name: 'Permanent Marker', weights: [400] },
-  { name: 'Pacifico', weights: [400] },
-  { name: 'Playfair Display', weights: [400, 500, 600, 700, 800, 900] }
-];
+const MAIN_FONT = 'Helvetica Rounded Bold';
+const FONT_URL = 'assets/Helvetica Rounded Bold/Helvetica Rounded Bold.otf';
+const FONTS = [{ name: MAIN_FONT, weights: [700] }];
 const customFonts = [];
 const allFonts = () => FONTS.concat(customFonts);
 const fontInfo = name => allFonts().find(f => f.name === name) || { name, weights: [400, 700] };
-const WEIGHT_NAMES = { 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'Semibold', 700: 'Bold', 800: 'Extra bold', 900: 'Black' };
+const WEIGHT_NAMES = { 400: 'Regular', 700: 'Bold' };
 
 function fontString(o, size = o.size) {
-  return `${o.italic ? 'italic ' : ''}${o.weight} ${size}px "${o.font}", Arial, Helvetica, sans-serif`;
+  return `${o.italic ? 'italic ' : ''}${o.weight} ${size}px "${o.font}", "Helvetica Neue", Helvetica, Arial, sans-serif`;
 }
 async function ensureFont(o) {
   try { await document.fonts.load(fontString(o, 100), 'Aa'); } catch (e) { /* ignore, fall back */ }
+}
+async function mainFontAvailable() {
+  try { const faces = await document.fonts.load(`700 100px "${MAIN_FONT}"`, 'Aa'); return faces.length > 0; }
+  catch (e) { return false; }
 }
 
 /* =====================================================================
@@ -118,18 +137,18 @@ async function registerImage(src, id) {
   id = id || ('u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
   if (images.has(id)) return id;
   const img = await loadImage(src);
-  let draw = img, w = img.naturalWidth, h = img.naturalHeight;
+  let draw = img, w = img.naturalWidth, hh = img.naturalHeight;
   const MAX = 3600;
-  if (Math.max(w, h) > MAX) {
-    const k = MAX / Math.max(w, h);
+  if (Math.max(w, hh) > MAX) {
+    const k = MAX / Math.max(w, hh);
     const c = document.createElement('canvas');
-    c.width = Math.round(w * k); c.height = Math.round(h * k);
+    c.width = Math.round(w * k); c.height = Math.round(hh * k);
     const x = c.getContext('2d');
     x.imageSmoothingQuality = 'high';
     x.drawImage(img, 0, 0, c.width, c.height);
-    draw = c; w = c.width; h = c.height;
+    draw = c; w = c.width; hh = c.height;
   }
-  images.set(id, { src, img: draw, w, h });
+  images.set(id, { src, img: draw, w, h: hh });
   return id;
 }
 function readFileAsDataURL(file) {
@@ -142,6 +161,56 @@ function readFileAsDataURL(file) {
 }
 
 /* =====================================================================
+   Album colour extraction (used to match the background to the cover)
+   ===================================================================== */
+function extractPalette(reg, n = 4) {
+  const S = 64, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(reg.img, 0, 0, S, S);
+  const d = x.getImageData(0, 0, S, S).data, bins = new Map();
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] < 200) continue;
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    const [, s, l] = rgbToHsl(r, g, b);
+    let w = 0.15 + s * (1 - Math.abs(l * 2 - 1));      // lively mid-tones count more
+    if (l > 0.9 || l < 0.1) w *= 0.04;                  // near white / black rarely make a good backdrop color
+    const e = bins.get(key) || { w: 0, r: 0, g: 0, b: 0, n: 0 };
+    e.w += w; e.r += r; e.g += g; e.b += b; e.n++;
+    bins.set(key, e);
+  }
+  const list = [...bins.values()].map(e => ({ w: e.w, r: e.r / e.n, g: e.g / e.n, b: e.b / e.n })).sort((a, b) => b.w - a.w);
+  const dist = (p, q) => Math.hypot(p.r - q.r, p.g - q.g, p.b - q.b);
+  const picked = [];
+  for (const c2 of list) {
+    if (picked.every(p => dist(p, c2) > 75)) picked.push(c2);
+    if (picked.length >= n) break;
+  }
+  if (!picked.length) picked.push({ r: 120, g: 120, b: 160 });
+  let colors = picked.map(p => rgbToHex(p.r, p.g, p.b));
+  // grey, white and black blobs just look muddy: swap them for tints of the cover's strongest hue
+  const hsl = colors.map(c => rgbToHsl(...hexToRgb(c)));
+  const vivid = ([, s, l]) => s * (1 - Math.abs(2 * l - 1));      // near white and near black score about zero
+  const lead = hsl.reduce((a, b2) => (vivid(b2) > vivid(a) ? b2 : a), hsl[0]);
+  if (vivid(lead) >= 0.1) {
+    colors = colors.map((c, i) => {
+      const [, , l] = hsl[i];
+      return vivid(hsl[i]) < 0.1 ? hslHex(lead[0] + 0.03 * (i % 2 ? 1 : -1), clamp(lead[1] * 0.85, 0.4, 0.85), clamp(l, 0.4, 0.7)) : c;
+    });
+  }
+  // make sure there are at least 3 colours to play with
+  let i = 0;
+  while (colors.length < 3) {
+    const [hh, s, l] = rgbToHsl(...hexToRgb(colors[0]));
+    colors.push(hslHex(hh + 0.04 * (i + 1), s, clamp(l + (i % 2 ? -0.18 : 0.18), 0.1, 0.9))); i++;
+  }
+  // backdrop: a deep version of the strongest colour
+  const [bh, bs] = rgbToHsl(...hexToRgb(colors[0]));
+  return { colors, base: hslHex(bh, clamp(bs * 0.55, 0, 0.6), 0.08) };
+}
+
+/* =====================================================================
    State
    ===================================================================== */
 const PRESETS = window.KU_PRESETS || [];
@@ -151,7 +220,7 @@ const DEFAULT_COVER_ID = PRESETS[0] ? presetId(PRESETS[0]) : null;
 function textObj(extra) {
   return Object.assign({
     type: 'text', name: 'Text', visible: true,
-    text: 'Text', font: 'Arimo', weight: 700, italic: false, caps: false,
+    text: 'Text', font: MAIN_FONT, weight: 700, italic: false, caps: false,
     size: 160, color: '#ffffff', fill: 'solid', color2: '#ffb524', gradAngle: 90,
     align: 'right', x: 2168, y: 2050, lh: 1, ls: 0, rot: 0, opacity: 1,
     stroke: { on: false, width: 14, color: '#000000' },
@@ -159,15 +228,27 @@ function textObj(extra) {
   }, extra);
 }
 
+function defaultBackground() {
+  return {
+    colors: ['#e8483f', '#f2b84b', '#7a4b2f', '#3b6fb6'], base: '#10090c', autoMatch: true,
+    blobs: 5, size: 100, softness: 80, blend: 'normal', seed: 7,
+    speed: 60, move: 100, time: 0,
+    saturation: 100, brightness: 0, vignette: 35, grain: 10,
+    light: { intensity: 30, size: 70, x: 28, y: 22, color: '#fff1d0', drift: true }
+  };
+}
+
 /* Geometry measured from the PSD:
    cover  = rounded square 2586px at (2314,120), corner radius 200px
    shadow = black 45%, shifted right/down, 99% of the cover size
-   texts  = right-aligned Arial/Helvetica Bold, white
+   texts  = right-aligned bold, white. Size and position are fitted to the
+            PSD's ink bounds once the font has loaded (see fitTemplateText)
    logo   = 1532 x 257 white logo at bottom left */
 function makeDefaultState() {
   return {
     nextText: 1,
-    bg: { mode: 'gradient', color: '#16181f', color2: '#3a2a52', angle: 135, imgId: null, zoom: 1, blur: 80, dim: 0.35 },
+    bg: defaultBackground(),
+    guides: { v: [], h: [] },
     order: ['cover', 'albumTitle', 'artist', 'track', 'logo'],
     objects: {
       cover: {
@@ -177,17 +258,40 @@ function makeDefaultState() {
         border: { on: false, width: 24, color: '#ffffff' },
         shadow: { on: true, color: '#000000', opacity: 0.45, x: 0.01875, y: 0.0199, scale: 0.99, blur: 0 }
       },
-      albumTitle: textObj({ name: 'Album title', text: 'Album Title Here', size: 160, x: 2168, y: 2048, ls: 16 }),
-      artist: textObj({ name: 'Artist name', text: 'Artist Name Here', size: 185, x: 2168, y: 1833, ls: 18 }),
+      albumTitle: textObj({ name: 'Album title', text: 'Album Title Here', size: 160, x: 2168, y: 2048 }),
+      artist: textObj({ name: 'Artist name', text: 'Artist Name Here', size: 185, x: 2168, y: 1833 }),
       track: textObj({ name: 'Track title', text: 'Track Title\nHere', size: 422, x: 2201, y: 1168 }),
       logo: { type: 'logo', name: 'Channel logo', visible: true, cx: 827, cy: 2640, scale: 1, rot: 0, opacity: 1, tintOn: false, tint: '#ffffff' }
     }
   };
 }
 
+/* Fit a template text so its ink matches the PSD: the width of its first line
+   and the right edge. This works with whatever font is loaded, so the layout
+   stays faithful to the template even if the font's metrics differ. */
+function fitTemplateText(o, line, inkWidth, inkRight) {
+  const ctx = mc;
+  ctx.font = fontString(o, 1000);
+  ctx.textAlign = 'right';
+  const m = ctx.measureText(line);
+  const ink = m.actualBoundingBoxLeft + m.actualBoundingBoxRight;
+  if (!ink) return;
+  o.size = Math.round(1000 * inkWidth / ink * 10) / 10;
+  ctx.font = fontString(o);
+  const m2 = ctx.measureText(line);
+  o.x = Math.round((inkRight - m2.actualBoundingBoxRight) * 10) / 10;
+  ctx.textAlign = 'start';
+}
+function calibrateState(st) {
+  const O = st.objects;
+  fitTemplateText(O.albumTitle, 'Album Title Here', 1300, 2163);
+  fitTemplateText(O.artist, 'Artist Name Here', 1542, 2162);
+  fitTemplateText(O.track, 'Track Title', 2063, 2187);
+}
+
 let state = null;
+let TEMPLATE = null;                   // calibrated default state (JSON string)
 let sel = 'cover';                     // selected layer id or 'background'
-let showGuides = false;
 const obj = id => state.objects[id];
 const cur = () => (sel === 'background' ? null : state.objects[sel]);
 
@@ -218,13 +322,13 @@ function layoutText(o) {
 /* =====================================================================
    Drawing
    ===================================================================== */
-function rrPath(ctx, x, y, w, h, r) {
-  r = Math.max(0, Math.min(r, w / 2, h / 2));
+function rrPath(ctx, x, y, w, hh, r) {
+  r = Math.max(0, Math.min(r, w / 2, hh / 2));
   ctx.beginPath();
   ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x + w, y, x + w, y + hh, r);
+  ctx.arcTo(x + w, y + hh, x, y + hh, r);
+  ctx.arcTo(x, y + hh, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
 }
@@ -244,85 +348,123 @@ function fillBlurred(ctx, s, blur, color, alpha, pathFn) {
   ctx.restore();
 }
 
-function drawImageCover(ctx, reg, boxW, boxH, cx, cy, zoom) {
-  const base = Math.max(boxW / reg.w, boxH / reg.h) * zoom;
-  const dw = reg.w * base, dh = reg.h * base;
-  ctx.drawImage(reg.img, cx - dw / 2, cy - dh / 2, dw, dh);
+/* ---------- Animated gradient background ---------- */
+const anim = { t: 0, playing: !REDUCED_MOTION };
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const blobCache = new Map();
+function blobParams(seed) {
+  if (blobCache.has(seed)) return blobCache.get(seed);
+  const r = mulberry32(Math.floor(seed) * 9973 + 11), arr = [];
+  for (let i = 0; i < 8; i++) {
+    arr.push({
+      x: 0.08 + 0.84 * r(), y: 0.1 + 0.8 * r(),
+      ax: 0.10 + 0.22 * r(), ay: 0.10 + 0.22 * r(),
+      fx: 0.30 + 0.50 * r(), fy: 0.30 + 0.50 * r(),
+      px: r() * 6.283, py: r() * 6.283,
+      rs: 0.8 + 0.5 * r(), rf: 0.25 + 0.40 * r(), rp: r() * 6.283
+    });
+  }
+  blobCache.set(seed, arr);
+  return arr;
+}
+const satCache = new Map();
+function satColor(hex, sat) {
+  if (sat === 1) return hex;
+  const key = hex + sat;
+  if (!satCache.has(key)) {
+    const [hh, s, l] = rgbToHsl(...hexToRgb(hex));
+    satCache.set(key, hslHex(hh, clamp(s * sat, 0, 1), l));
+    if (satCache.size > 400) satCache.clear();
+  }
+  return satCache.get(key);
+}
+let noiseTile = null;
+function getNoise() {
+  if (noiseTile) return noiseTile;
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const x = c.getContext('2d'), id = x.createImageData(256, 256), r = mulberry32(1234);
+  for (let i = 0; i < id.data.length; i += 4) {
+    const v = r() * 255;
+    id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255;
+  }
+  x.putImageData(id, 0, 0);
+  return (noiseTile = c);
 }
 
-/* Cheap blur for browsers without ctx.filter: shrink then grow in steps */
-function softBlurDraw(ctx, reg, s, blurPx, zoom) {
-  const f = clamp(blurPx / 5, 1, 70);
-  const tw = Math.max(8, Math.round(W * s / f)), th = Math.max(8, Math.round(H * s / f));
-  let c = document.createElement('canvas'); c.width = tw; c.height = th;
-  let x = c.getContext('2d'); x.imageSmoothingQuality = 'high';
-  const base = Math.max(tw / reg.w, th / reg.h) * zoom * 1.12;
-  x.drawImage(reg.img, tw / 2 - reg.w * base / 2, th / 2 - reg.h * base / 2, reg.w * base, reg.h * base);
-  while (c.width < W * s) {
-    const n = document.createElement('canvas');
-    n.width = Math.min(Math.round(c.width * 2), Math.round(W * s)); n.height = Math.min(Math.round(c.height * 2), Math.round(H * s));
-    const nx = n.getContext('2d'); nx.imageSmoothingEnabled = true; nx.imageSmoothingQuality = 'high';
-    nx.drawImage(c, 0, 0, n.width, n.height); c = n;
+/* Draws the whole background in canvas pixels (cw x ch). s = canvas px per template px. */
+function drawAnimatedBackground(ctx, cw, ch, s, t, b) {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = b.base; ctx.fillRect(0, 0, cw, ch);
+
+  const P = blobParams(b.seed), cols = b.colors.length ? b.colors : ['#888888'];
+  const n = clamp(Math.round(b.blobs), 1, 8), sat = b.saturation / 100, mv = b.move / 100;
+  const k = clamp(b.softness / 100, 0, 1);
+  const baseR = Math.max(cw, ch) * 0.34 * (b.size / 100);
+  ctx.globalCompositeOperation = ({ normal: 'source-over', screen: 'screen', glow: 'lighter' })[b.blend] || 'source-over';
+  for (let i = 0; i < n; i++) {
+    const p = P[i], col = satColor(cols[i % cols.length], sat);
+    const nx = (p.x + mv * p.ax * Math.sin(t * p.fx + p.px)) * cw;
+    const ny = (p.y + mv * p.ay * Math.cos(t * p.fy + p.py)) * ch;
+    const R = baseR * p.rs * (1 + 0.15 * mv * Math.sin(t * p.rf + p.rp));
+    const g = ctx.createRadialGradient(nx, ny, 0, nx, ny, R);
+    for (let j = 0; j <= 10; j++) {
+      const f = j / 10, soft = 0.5 * (1 + Math.cos(Math.PI * f)), hard = f <= 0.9 ? 1 : 0;
+      g.addColorStop(f, rgba(col, lerp(hard, soft, k)));
+    }
+    ctx.fillStyle = g;
+    ctx.fillRect(nx - R, ny - R, R * 2, R * 2);
   }
-  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(c, 0, 0, W * s, H * s);
+
+  // lighting
+  const L = b.light;
+  if (L.intensity > 0) {
+    const dr = L.drift ? 1 : 0;
+    const lx = (L.x / 100 + dr * 0.07 * Math.sin(t * 0.35)) * cw, ly = (L.y / 100 + dr * 0.06 * Math.cos(t * 0.27)) * ch;
+    const R = Math.max(cw, ch) * (L.size / 100) * 0.8, I = L.intensity / 100;
+    const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, R);
+    g.addColorStop(0, rgba(L.color, I)); g.addColorStop(0.45, rgba(L.color, I * 0.4)); g.addColorStop(1, rgba(L.color, 0));
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // vignette
+  if (b.vignette > 0) {
+    const R = Math.hypot(cw, ch) / 2;
+    const g = ctx.createRadialGradient(cw / 2, ch / 2, R * 0.28, cw / 2, ch / 2, R);
+    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${(b.vignette / 100) * 0.85})`);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
+  }
+  // brightness
+  if (b.brightness !== 0) {
+    ctx.fillStyle = b.brightness < 0 ? `rgba(0,0,0,${-b.brightness / 100 * 0.8})` : `rgba(255,255,255,${b.brightness / 100 * 0.4})`;
+    ctx.fillRect(0, 0, cw, ch);
+  }
+  // film grain
+  if (b.grain > 0) {
+    const kk = s * 2.5, pat = ctx.createPattern(getNoise(), 'repeat');
+    ctx.save();
+    ctx.scale(kk, kk);
+    ctx.globalAlpha = b.grain / 100 * 0.22;
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.fillStyle = pat; ctx.fillRect(0, 0, cw / kk, ch / kk);
+    ctx.restore();
+  }
   ctx.restore();
 }
 
-function drawBackgroundRaw(ctx, s, exportFill) {
-  const b = state.bg;
-  if (b.mode === 'transparent') {
-    if (exportFill) { ctx.fillStyle = exportFill; ctx.fillRect(0, 0, W, H); }
-    return;
-  }
-  if (b.mode === 'solid') { ctx.fillStyle = b.color; ctx.fillRect(0, 0, W, H); return; }
-  if (b.mode === 'gradient') {
-    const a = rad(b.angle), dx = Math.cos(a), dy = Math.sin(a);
-    const half = Math.abs(W / 2 * dx) + Math.abs(H / 2 * dy);
-    const g = ctx.createLinearGradient(W / 2 - dx * half, H / 2 - dy * half, W / 2 + dx * half, H / 2 + dy * half);
-    g.addColorStop(0, b.color); g.addColorStop(1, b.color2);
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); return;
-  }
-  // image or blurred cover
-  let reg = null, blur = 0;
-  if (b.mode === 'image') reg = images.get(b.imgId);
-  if (b.mode === 'blur') { reg = images.get(obj('cover').imgId); blur = b.blur; }
-  ctx.fillStyle = '#101117'; ctx.fillRect(0, 0, W, H);
-  if (reg) {
-    if (blur > 0 && !FILTER_OK) softBlurDraw(ctx, reg, s, blur, b.zoom);
-    else if (blur > 0) {
-      ctx.save();
-      ctx.filter = `blur(${blur * s}px)`;
-      drawImageCover(ctx, reg, W, H, W / 2, H / 2, b.zoom * (1 + blur * 4 / Math.min(W, H)));
-      ctx.restore();
-    } else drawImageCover(ctx, reg, W, H, W / 2, H / 2, b.zoom);
-  }
-  if (b.dim > 0) { ctx.fillStyle = rgba('#000000', b.dim); ctx.fillRect(0, 0, W, H); }
-}
-
-let bgCache = { key: '', canvas: null };
-function backgroundKey() {
-  const b = state.bg;
-  let k = JSON.stringify(b);
-  if (b.mode === 'blur') { const c = obj('cover'); k += c.imgId; }
-  return k;
-}
-function drawBackground(ctx, s, opts) {
-  if (opts.preview) {
-    const k = backgroundKey();
-    if (bgCache.key !== k || !bgCache.canvas) {
-      const c = bgCache.canvas || document.createElement('canvas');
-      c.width = Math.round(W * s); c.height = Math.round(H * s);
-      const x = c.getContext('2d'); x.clearRect(0, 0, c.width, c.height);
-      x.save(); x.setTransform(s, 0, 0, s, 0, 0); drawBackgroundRaw(x, s, null); x.restore();
-      bgCache = { key: k, canvas: c };
-    }
-    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(bgCache.canvas, 0, 0); ctx.restore();
-  } else {
-    drawBackgroundRaw(ctx, s, opts.exportFill);
-  }
-}
-
+/* ---------- Cover, text, logo ---------- */
 function drawCover(ctx, o, s, opts) {
   const half = o.size / 2, r = o.radius * o.size, rot = rad(o.rot);
   if (o.shadow.on && o.shadow.opacity > 0) {
@@ -435,11 +577,7 @@ function drawLogo(ctx, o) {
 }
 
 function renderScene(ctx, s, opts = {}) {
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, W * s, H * s);
-  ctx.restore();
-  drawBackground(ctx, s, opts);
+  drawAnimatedBackground(ctx, Math.round(W * s), Math.round(H * s), s, anim.t, state.bg);
   ctx.save();
   ctx.setTransform(s, 0, 0, s, 0, 0);
   for (const id of state.order) {
@@ -452,7 +590,9 @@ function renderScene(ctx, s, opts = {}) {
   ctx.restore();
 }
 
-/* ---------- Selection overlay (preview only) ---------- */
+/* =====================================================================
+   Geometry helpers for selection, snapping and rulers
+   ===================================================================== */
 const stage = $('#stage');
 const sctx = stage.getContext('2d');
 const unit = () => W / stage.getBoundingClientRect().width;   // template px per CSS px
@@ -472,20 +612,109 @@ function toLocal(b, p) {
   const a = -rad(b.rot), dx = p.x - b.cx, dy = p.y - b.cy;
   return { x: dx * Math.cos(a) - dy * Math.sin(a), y: dx * Math.sin(a) + dy * Math.cos(a) };
 }
+function aabb(b, cx = b.cx, cy = b.cy) {
+  const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => toWorld({ ...b, cx, cy }, sx * b.w / 2, sy * b.h / 2));
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  return { minx: Math.min(...xs), maxx: Math.max(...xs), miny: Math.min(...ys), maxy: Math.max(...ys) };
+}
 
-let dragGuides = [];
+/* =====================================================================
+   View settings: grid, rulers, snapping (remembered between visits)
+   ===================================================================== */
+const VIEW_KEY = 'ku-thumb-view-v2';
+const VIEW_DEFAULTS = {
+  rulers: true, grid: false, snapGrid: true, smart: true,
+  template: false, center: false, ytZone: false,
+  gridMode: 'divisions', cols: 8, rows: 8, cell: 250, margin: 0,
+  gridColor: '#ffffff', gridOpacity: 0.35, gridWidth: 1, snapPx: 10
+};
+const view = Object.assign({}, VIEW_DEFAULTS);
+try { Object.assign(view, JSON.parse(localStorage.getItem(VIEW_KEY) || '{}')); } catch (e) { /* ignore */ }
+function saveView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch (e) { /* ignore */ } }
+
+/* Lines of the grid in template px. */
+function gridLines() {
+  const m = clamp(view.margin, 0, Math.min(W, H) / 2 - 10);
+  const x0 = m, x1 = W - m, y0 = m, y1 = H - m, xs = [], ys = [];
+  if (view.gridMode === 'divisions') {
+    const c = Math.max(1, Math.round(view.cols)), r = Math.max(1, Math.round(view.rows));
+    for (let i = 0; i <= c; i++) xs.push(x0 + (x1 - x0) * i / c);
+    for (let i = 0; i <= r; i++) ys.push(y0 + (y1 - y0) * i / r);
+  } else {
+    // square cells that grow out from the centre, so the grid stays symmetric
+    const sz = Math.max(20, view.cell);
+    const grow = (mid, lo, hi, out) => {
+      out.push(mid);
+      for (let k = 1; mid + k * sz <= hi + 0.5 || mid - k * sz >= lo - 0.5; k++) {
+        if (mid + k * sz <= hi + 0.5) out.push(mid + k * sz);
+        if (mid - k * sz >= lo - 0.5) out.push(mid - k * sz);
+      }
+    };
+    grow(W / 2, x0, x1, xs); grow(H / 2, y0, y1, ys);
+    if (m > 0) { xs.push(x0, x1); ys.push(y0, y1); }
+    xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
+  }
+  return { xs, ys };
+}
+function gridStep(axis) {
+  if (view.gridMode === 'divisions') {
+    const m = clamp(view.margin, 0, 1000);
+    return axis === 'x' ? (W - 2 * m) / Math.max(1, view.cols) : (H - 2 * m) / Math.max(1, view.rows);
+  }
+  return Math.max(20, view.cell);
+}
+
+/* Lines that belong to the PSD layout (text right edge, baselines, cover edges, logo edge). */
+let templateLines = { xs: [], ys: [] };
+function buildTemplateLines(st) {
+  const O = st.objects, c = O.cover, lg = images.get('logo');
+  const xs = [O.albumTitle.x, c.cx - c.size / 2, c.cx + c.size / 2];
+  if (lg) xs.push(O.logo.cx - lg.w * O.logo.scale / 2);
+  const ys = [c.cy - c.size / 2, c.cy + c.size / 2, O.albumTitle.y, O.artist.y, O.track.y, O.track.y + O.track.lh * O.track.size];
+  templateLines = { xs: [...new Set(xs.map(Math.round))], ys: [...new Set(ys.map(Math.round))] };
+}
+
+/* =====================================================================
+   Overlay (selection, grid, guides) and rulers: preview only, never exported
+   ===================================================================== */
+let dragGuides = [];       // snap lines shown while dragging: { axis:'v'|'h', pos }
+let liveGuide = null;      // ruler guide being pulled out: { axis, pos }
+let mouse = null;          // pointer position in template px
+let exporting = false, rafId = 0;
+
 function drawOverlay() {
   const u = unit();
   sctx.save();
   sctx.setTransform(PS, 0, 0, PS, 0, 0);
+  const seg = (x1, y1, x2, y2) => { sctx.moveTo(x1, y1); sctx.lineTo(x2, y2); };
 
-  if (showGuides) {
+  if (view.grid) {
+    const g = gridLines(), m = clamp(view.margin, 0, Math.min(W, H) / 2 - 10);
     sctx.save();
-    sctx.strokeStyle = 'rgba(255,255,255,.55)'; sctx.lineWidth = 1.5 * u; sctx.setLineDash([10 * u, 8 * u]);
-    sctx.beginPath(); sctx.moveTo(W / 2, 0); sctx.lineTo(W / 2, H); sctx.moveTo(0, H / 2); sctx.lineTo(W, H / 2); sctx.stroke();
-    sctx.setLineDash([]);
+    sctx.beginPath();
+    g.xs.forEach(x => seg(x, m, x, H - m));
+    g.ys.forEach(y => seg(m, y, W - m, y));
+    sctx.globalAlpha = view.gridOpacity * 0.55; sctx.strokeStyle = '#000000'; sctx.lineWidth = (view.gridWidth + 1.6) * u;   // dark edge keeps lines visible on light images
+    sctx.stroke();
+    sctx.globalAlpha = view.gridOpacity; sctx.strokeStyle = view.gridColor; sctx.lineWidth = view.gridWidth * u;
+    sctx.stroke();
+    if (m > 0) { sctx.setLineDash([8 * u, 6 * u]); sctx.strokeRect(m, m, W - 2 * m, H - 2 * m); }
+    sctx.restore();
+  }
+  if (view.center) {
+    sctx.save(); sctx.strokeStyle = 'rgba(255,255,255,.6)'; sctx.lineWidth = 1.5 * u; sctx.setLineDash([10 * u, 8 * u]);
+    sctx.beginPath(); seg(W / 2, 0, W / 2, H); seg(0, H / 2, W, H / 2); sctx.stroke(); sctx.restore();
+  }
+  if (view.template) {
+    sctx.save(); sctx.strokeStyle = 'rgba(255,181,36,.9)'; sctx.lineWidth = 1.5 * u; sctx.setLineDash([14 * u, 8 * u]);
+    sctx.beginPath();
+    templateLines.xs.forEach(x => seg(x, 0, x, H)); templateLines.ys.forEach(y => seg(0, y, W, y));
+    sctx.stroke(); sctx.restore();
+  }
+  if (view.ytZone) {
     // area covered by the YouTube video-length badge (about 10% x 7% in the bottom right)
     const zw = W * 0.105, zh = H * 0.075, zx = W - zw - W * 0.006, zy = H - zh - H * 0.012;
+    sctx.save();
     sctx.fillStyle = 'rgba(255,60,60,.28)'; sctx.strokeStyle = 'rgba(255,90,90,.9)'; sctx.lineWidth = 2 * u;
     sctx.fillRect(zx, zy, zw, zh); sctx.strokeRect(zx, zy, zw, zh);
     sctx.fillStyle = '#fff'; sctx.font = `700 ${12 * u}px DM Sans, Arial, sans-serif`; sctx.textAlign = 'center'; sctx.textBaseline = 'middle';
@@ -493,11 +722,15 @@ function drawOverlay() {
     sctx.restore();
   }
 
+  // user guides pulled from the rulers
+  sctx.save(); sctx.strokeStyle = '#19d3da'; sctx.lineWidth = 1.5 * u; sctx.beginPath();
+  state.guides.v.forEach(x => seg(x, 0, x, H)); state.guides.h.forEach(y => seg(0, y, W, y));
+  if (liveGuide) { if (liveGuide.axis === 'v') seg(liveGuide.pos, 0, liveGuide.pos, H); else seg(0, liveGuide.pos, W, liveGuide.pos); }
+  sctx.stroke(); sctx.restore();
+
   if (dragGuides.length) {
-    sctx.save(); sctx.strokeStyle = '#ff4fa3'; sctx.lineWidth = 2 * u;
-    sctx.beginPath();
-    if (dragGuides.includes('v')) { sctx.moveTo(W / 2, 0); sctx.lineTo(W / 2, H); }
-    if (dragGuides.includes('h')) { sctx.moveTo(0, H / 2); sctx.lineTo(W, H / 2); }
+    sctx.save(); sctx.strokeStyle = '#ff4fa3'; sctx.lineWidth = 2 * u; sctx.beginPath();
+    dragGuides.forEach(g => g.axis === 'v' ? seg(g.pos, 0, g.pos, H) : seg(0, g.pos, W, g.pos));
     sctx.stroke(); sctx.restore();
   }
 
@@ -507,6 +740,13 @@ function drawOverlay() {
     const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => toWorld(b, sx * b.w / 2, sy * b.h / 2));
     sctx.lineWidth = 2 * u; sctx.strokeStyle = '#2ea8ff';
     sctx.beginPath(); pts.forEach((p, i) => i ? sctx.lineTo(p.x, p.y) : sctx.moveTo(p.x, p.y)); sctx.closePath(); sctx.stroke();
+    // text baselines, so alignment to the grid is easy to judge
+    if (o.type === 'text' && o.rot === 0) {
+      const L = layoutText(o);
+      sctx.save(); sctx.strokeStyle = 'rgba(46,168,255,.7)'; sctx.lineWidth = 1 * u; sctx.setLineDash([6 * u, 5 * u]); sctx.beginPath();
+      L.lines.forEach((_, i) => seg(L.left, o.y + i * o.lh * o.size, L.left + L.w, o.y + i * o.lh * o.size));
+      sctx.stroke(); sctx.restore();
+    }
     // rotate handle
     const top = toWorld(b, 0, -b.h / 2), rh = toWorld(b, 0, -b.h / 2 - ROT_OFFSET * u);
     sctx.beginPath(); sctx.moveTo(top.x, top.y); sctx.lineTo(rh.x, rh.y); sctx.stroke();
@@ -518,11 +758,62 @@ function drawOverlay() {
   sctx.restore();
 }
 
-let exporting = false, rafId = 0;
+/* ---------- Rulers ---------- */
+const rulerH = $('#rulerH'), rulerV = $('#rulerV');
+let rulerKey = '';
+function paintRuler(c, axis, bb) {
+  const r = c.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const d = window.devicePixelRatio || 1, cw = Math.round(r.width * d), chh = Math.round(r.height * d);
+  if (c.width !== cw || c.height !== chh) { c.width = cw; c.height = chh; }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  const hor = axis === 'h', len = hor ? r.width : r.height, thick = hor ? r.height : r.width;
+  const total = hor ? W : H, u = total / len;
+  ctx.fillStyle = '#1c1f27'; ctx.fillRect(0, 0, r.width, r.height);
+  if (bb) {                                     // extent of the selected layer
+    const a = hor ? bb.minx : bb.miny, b2 = hor ? bb.maxx : bb.maxy;
+    ctx.fillStyle = 'rgba(46,168,255,.30)';
+    if (hor) ctx.fillRect(a / u, 0, (b2 - a) / u, thick); else ctx.fillRect(0, a / u, thick, (b2 - a) / u);
+  }
+  const step = [10, 20, 25, 50, 100, 200, 250, 500, 1000].find(s => s / u >= 70) || 1000, minor = step / 5;
+  ctx.strokeStyle = '#6b7388'; ctx.lineWidth = 1; ctx.beginPath();
+  for (let v = 0; v <= total + 0.1; v += minor) {
+    const pos = Math.round(v / u) + 0.5;
+    const major = Math.abs(v / step - Math.round(v / step)) < 1e-6;
+    const mid = !major && Math.abs(v / (step / 2) - Math.round(v / (step / 2))) < 1e-6;
+    const tl = major ? thick : mid ? thick * 0.55 : thick * 0.3;
+    if (hor) { ctx.moveTo(pos, thick); ctx.lineTo(pos, thick - tl); } else { ctx.moveTo(thick, pos); ctx.lineTo(thick - tl, pos); }
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#98a1b5'; ctx.font = '10px "DM Sans", Arial, sans-serif'; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  for (let v = 0; v <= total + 0.1; v += step) {
+    const pos = v / u;
+    if (hor) ctx.fillText(String(Math.round(v)), pos + 3, 2);
+    else { ctx.save(); ctx.translate(thick - 2, pos + 3); ctx.rotate(Math.PI / 2); ctx.fillText(String(Math.round(v)), 0, 0); ctx.restore(); }
+  }
+  // user guides and pointer position
+  const mark = (v, col) => { ctx.strokeStyle = col; ctx.beginPath(); const p = Math.round(v / u) + 0.5; if (hor) { ctx.moveTo(p, 0); ctx.lineTo(p, thick); } else { ctx.moveTo(0, p); ctx.lineTo(thick, p); } ctx.stroke(); };
+  (hor ? state.guides.v : state.guides.h).forEach(v => mark(v, '#19d3da'));
+  if (mouse) mark(hor ? mouse.x : mouse.y, '#ffffff');
+}
+function drawRulers() {
+  $('#stageFrame').classList.toggle('no-rulers', !view.rulers);
+  if (!view.rulers) return;
+  const rect = stage.getBoundingClientRect(), o = cur();
+  const bb = o && o.visible ? aabb(boxOf(o)) : null;
+  const key = [Math.round(rect.width), Math.round(rect.height), bb ? [bb.minx, bb.maxx, bb.miny, bb.maxy].map(Math.round).join() : '',
+    mouse ? Math.round(mouse.x) + ',' + Math.round(mouse.y) : '', JSON.stringify(state.guides), window.devicePixelRatio].join('|');
+  if (key === rulerKey) return;
+  rulerKey = key;
+  paintRuler(rulerH, 'h', bb); paintRuler(rulerV, 'v', bb);
+}
+
 function renderPreview() {
   rafId = 0;
   renderScene(sctx, PS, { preview: true });
   drawOverlay();
+  drawRulers();
 }
 function requestRender() { if (!rafId) rafId = requestAnimationFrame(renderPreview); }
 
@@ -552,6 +843,7 @@ function gotoHistory(i) {
   hist.i = i;
   state = JSON.parse(hist.stack[i]);
   if (sel !== 'background' && !state.objects[sel]) sel = 'cover';
+  if (!anim.playing) anim.t = state.bg.time || 0;
   updateHistoryButtons();
   ensureAllFonts().then(requestRender);
   renderLayers(); renderPanel(); requestRender();
@@ -560,9 +852,11 @@ const undo = () => { pushHistory(); gotoHistory(hist.i - 1); };
 const redo = () => gotoHistory(hist.i + 1);
 
 /* =====================================================================
-   Inspector (layers list + property panel)
+   Controls (shared by the inspector and the grid panel)
    ===================================================================== */
 let refreshers = [];
+let UI = { reg: () => refreshers, fire: () => changed(), rebuild: () => renderPanel() };
+function withUI(ui, fn) { const prev = UI; UI = ui; try { fn(); } finally { UI = prev; } }
 function changed() {
   requestRender();
   schedulePush();
@@ -570,58 +864,71 @@ function changed() {
 }
 function refreshAll() { refreshers.forEach(f => f()); }
 
-function field(labelText, ...ctl) { return h('div', { class: 'field' }, h('label', {}, labelText), h('div', {}, ...ctl)); }
-
 function slider({ label: lab, min, max, step = 1, digits = 0, get, set }) {
-  const range = h('input', { type: 'range', min, max, step });
-  const num = h('input', { type: 'number', class: 'num', step });
+  const reg = UI.reg(), fire = UI.fire;
+  const range = h('input', { type: 'range', min, max, step, 'aria-label': lab });
+  const num = h('input', { type: 'number', class: 'num', step, 'aria-label': lab + ' value' });
   const refresh = () => {
     const v = get();
     range.value = v;
     if (document.activeElement !== num) num.value = Number(v).toFixed(digits);
   };
-  range.addEventListener('input', () => { set(parseFloat(range.value)); changed(); });
-  num.addEventListener('input', () => { const v = parseFloat(num.value); if (!isNaN(v)) { set(v); changed(); } });
+  range.addEventListener('input', () => { set(parseFloat(range.value)); fire(); });
+  num.addEventListener('input', () => { const v = parseFloat(num.value); if (!isNaN(v)) { set(v); fire(); } });
   num.addEventListener('blur', refresh);
-  refreshers.push(refresh); refresh();
+  reg.push(refresh); refresh();
   return h('div', { class: 'field' }, h('label', {}, lab), h('div', { class: 'slider' }, range, num));
 }
 
 function colorField({ label: lab, get, set }) {
-  const input = h('input', { type: 'color' });
+  const reg = UI.reg(), fire = UI.fire;
+  const input = h('input', { type: 'color', 'aria-label': lab });
   const hex = h('span', { class: 'hex' });
   const refresh = () => { input.value = get(); hex.textContent = get(); };
-  input.addEventListener('input', () => { set(input.value); changed(); });
-  refreshers.push(refresh); refresh();
+  input.addEventListener('input', () => { set(input.value); fire(); });
+  reg.push(refresh); refresh();
   return h('div', { class: 'field' }, h('label', {}, lab), h('div', { class: 'color' }, input, hex));
 }
 
 function selectField({ label: lab, options, get, set, rebuild = false }) {
-  const sel2 = h('select', {}, options.map(([v, t]) => h('option', { value: v }, t)));
-  const refresh = () => { sel2.value = String(get()); };
-  sel2.addEventListener('change', () => { set(sel2.value); changed(); if (rebuild) renderPanel(); });
-  refreshers.push(refresh); refresh();
-  return h('div', { class: 'field' }, h('label', {}, lab), h('div', {}, sel2));
+  const reg = UI.reg(), fire = UI.fire, rb = UI.rebuild;
+  const s = h('select', { 'aria-label': lab }, options.map(([v, t]) => h('option', { value: v }, t)));
+  const refresh = () => { s.value = String(get()); };
+  s.addEventListener('change', () => { set(s.value); fire(); if (rebuild) rb(); });
+  reg.push(refresh); refresh();
+  return h('div', { class: 'field' }, h('label', {}, lab), h('div', {}, s));
 }
 
 function segField({ label: lab, options, get, set, rebuild = false, stack = false }) {
+  const reg = UI.reg(), fire = UI.fire, rb = UI.rebuild;
   const wrap = h('div', { class: 'seg', role: 'group', 'aria-label': lab });
   const btns = options.map(([v, content, title]) => {
     const b = h('button', { type: 'button', title: title || '', 'aria-label': title || String(v), html: content });
-    b.addEventListener('click', () => { set(v); changed(); if (rebuild) renderPanel(); });
+    b.addEventListener('click', () => { set(v); fire(); if (rebuild) rb(); });
     wrap.append(b); return [v, b];
   });
   const refresh = () => btns.forEach(([v, b]) => b.setAttribute('aria-pressed', String(get() === v)));
-  refreshers.push(refresh); refresh();
+  reg.push(refresh); refresh();
   return h('div', { class: 'field' + (stack ? ' stack' : '') }, stack ? null : h('label', {}, lab), wrap);
 }
 
 function toggleField({ label: lab, get, set, rebuild = true }) {
-  const input = h('input', { type: 'checkbox', role: 'switch' });
+  const reg = UI.reg(), fire = UI.fire, rb = UI.rebuild;
+  const input = h('input', { type: 'checkbox', role: 'switch', 'aria-label': lab });
   const refresh = () => { input.checked = !!get(); };
-  input.addEventListener('change', () => { set(input.checked); changed(); if (rebuild) renderPanel(); });
-  refreshers.push(refresh); refresh();
+  input.addEventListener('change', () => { set(input.checked); fire(); if (rebuild) rb(); });
+  reg.push(refresh); refresh();
   return h('label', { class: 'switch', title: lab }, input, h('span'));
+}
+function switchRow(lab, opts) { return h('div', { class: 'field' }, h('label', {}, lab), h('div', {}, toggleField(opts))); }
+
+function toggleButton(content, get, set) {
+  const reg = UI.reg(), fire = UI.fire;
+  const b = h('button', { type: 'button', html: content });
+  b.addEventListener('click', () => { set(!get()); fire(); });
+  const refresh = () => b.setAttribute('aria-pressed', String(!!get()));
+  reg.push(refresh); refresh();
+  return b;
 }
 
 function group(title, ...kids) { return h('section', { class: 'group' }, title ? h('h3', {}, title) : null, ...kids); }
@@ -630,6 +937,9 @@ function groupWithSwitch(title, sw, ...kids) {
 }
 function button(text, iconName, onclick, cls = '') { return h('button', { type: 'button', class: 'btn ' + cls, html: label(iconName, text), onclick }); }
 
+/* =====================================================================
+   Layers list and property panels
+   ===================================================================== */
 function renderLayers() {
   const ul = $('#layers');
   ul.innerHTML = '';
@@ -651,7 +961,7 @@ function renderLayers() {
     ul.append(li);
   });
   const bgLi = h('li', { class: 'layer' + (sel === 'background' ? ' sel' : ''), 'data-id': 'background' },
-    h('span'), h('span', { class: 'name' }, 'Background'), h('span'));
+    h('span'), h('span', { class: 'name' }, 'Animated background'), h('span'));
   bgLi.addEventListener('click', () => select('background'));
   ul.append(bgLi);
 }
@@ -734,6 +1044,7 @@ function panelText(box, o, id) {
   ta.addEventListener('input', () => { o.text = ta.value; changed(); });
 
   const fontOpts = allFonts().map(f => [f.name, f.name + (f.note ? ` (${f.note})` : '')]);
+  if (!allFonts().some(f => f.name === o.font)) fontOpts.push([o.font, o.font + ' (not loaded)']);
   const info = fontInfo(o.font);
   const weightOpts = info.weights.map(w => [w, `${WEIGHT_NAMES[w] || w} (${w})`]);
 
@@ -747,11 +1058,11 @@ function panelText(box, o, id) {
         label: 'Typeface', options: fontOpts, rebuild: true, get: () => o.font,
         set: v => { o.font = v; const ws = fontInfo(v).weights; if (!ws.includes(o.weight)) o.weight = ws.reduce((a, b) => Math.abs(b - o.weight) < Math.abs(a - o.weight) ? b : a); ensureFont(o).then(requestRender); }
       }),
-      selectField({ label: 'Weight', options: weightOpts, get: () => o.weight, set: v => { o.weight = parseInt(v, 10); ensureFont(o).then(requestRender); } }),
+      weightOpts.length > 1 ? selectField({ label: 'Weight', options: weightOpts, get: () => o.weight, set: v => { o.weight = parseInt(v, 10); ensureFont(o).then(requestRender); } }) : null,
       h('div', { class: 'field stack' },
         h('div', { class: 'seg' },
-          (() => { const b = h('button', { type: 'button', html: '<i>Italic</i>' }); b.addEventListener('click', () => { o.italic = !o.italic; ensureFont(o).then(requestRender); changed(); }); refreshers.push(() => b.setAttribute('aria-pressed', String(o.italic))); b.setAttribute('aria-pressed', String(o.italic)); return b; })(),
-          (() => { const b = h('button', { type: 'button', html: 'UPPERCASE' }); b.addEventListener('click', () => { o.caps = !o.caps; changed(); }); refreshers.push(() => b.setAttribute('aria-pressed', String(o.caps))); b.setAttribute('aria-pressed', String(o.caps)); return b; })(),
+          toggleButton('<i>Italic</i>', () => o.italic, v => { o.italic = v; ensureFont(o).then(requestRender); }),
+          toggleButton('UPPERCASE', () => o.caps, v => { o.caps = v; }),
           button('Use my own font', 'upload', () => $('#fontFile').click(), 'small'))),
       slider({ label: 'Size', min: 20, max: 900, step: 1, get: () => o.size, set: v => resizeText(o, Math.max(8, v)) }),
       slider({ label: 'Line height', min: 0.6, max: 2, step: 0.01, digits: 2, get: () => o.lh, set: v => o.lh = v }),
@@ -794,11 +1105,9 @@ function setAlign(o, v) {
 }
 function resizeText(o, size) {
   const b0 = layoutText(o);
-  const k = size / o.size;
   o.size = size;
   const b1 = layoutText(o);
   o.x += b0.cx - b1.cx; o.y += b0.cy - b1.cy;
-  return k;
 }
 
 /* ---------- Logo panel ---------- */
@@ -806,7 +1115,7 @@ function panelLogo(box, o) {
   box.append(
     group('Channel logo',
       slider({ label: 'Size', min: 5, max: 400, step: 1, get: () => Math.round(o.scale * 100), set: v => o.scale = Math.max(0.02, v / 100) }),
-      h('div', { class: 'field' }, h('label', {}, 'Recolor'), h('div', {}, toggleField({ label: 'Recolor logo', get: () => o.tintOn, set: v => o.tintOn = v }))),
+      switchRow('Recolor', { label: 'Recolor logo', get: () => o.tintOn, set: v => o.tintOn = v }),
       ...(o.tintOn ? [colorField({ label: 'Color', get: () => o.tint, set: v => o.tint = v })] : [])
     ),
     transformGroup(o, { xKey: 'cx', yKey: 'cy', xLabel: 'Center X', yLabel: 'Center Y' }),
@@ -814,37 +1123,100 @@ function panelLogo(box, o) {
   );
 }
 
-/* ---------- Background panel ---------- */
+/* ---------- Animated background panel ---------- */
+function setPlaying(v) {
+  anim.playing = v;
+  if (!v) { state.bg.time = anim.t; pushHistory(); }
+  refreshAll();
+}
+function applyPaletteTo(b, pal) { b.colors = pal.colors.slice(); b.base = pal.base; }
+function applyPalette(pal) { applyPaletteTo(state.bg, pal); }
+function matchCover(silent) {
+  const reg = images.get(obj('cover').imgId);
+  if (!reg) { if (!silent) toast('Choose an album cover first, then match its colors.', true); return false; }
+  applyPalette(extractPalette(reg, 4));
+  return true;
+}
+function randomPalette() {
+  const h0 = Math.random(), sat = 0.6 + Math.random() * 0.3;
+  return {
+    colors: [hslHex(h0, sat, 0.55), hslHex(h0 + 0.08, sat, 0.62), hslHex(h0 + 0.5 + Math.random() * 0.1, sat * 0.8, 0.5), hslHex(h0 + 0.62, sat * 0.9, 0.45)],
+    base: hslHex(h0, 0.4, 0.07)
+  };
+}
+
 function panelBackground(box) {
   const b = state.bg;
-  const modes = [['transparent', 'Transparent'], ['solid', 'Solid'], ['gradient', 'Gradient'], ['image', 'Image'], ['blur', 'Blurred cover']];
-  const parts = [
-    segField({ label: 'Type', stack: true, options: modes, get: () => b.mode, set: v => { b.mode = v; }, rebuild: true })
-  ];
-  if (b.mode === 'transparent') parts.push(h('p', { class: 'note' }, 'Exports as a transparent PNG. JPG exports use a dark fill instead, since the text is white.'));
-  if (b.mode === 'solid') parts.push(colorField({ label: 'Color', get: () => b.color, set: v => b.color = v }));
-  if (b.mode === 'gradient') parts.push(
-    colorField({ label: 'Color 1', get: () => b.color, set: v => b.color = v }),
-    colorField({ label: 'Color 2', get: () => b.color2, set: v => b.color2 = v }),
-    slider({ label: 'Angle', min: -180, max: 180, step: 1, get: () => b.angle, set: v => b.angle = v })
+  const swatches = h('div', { class: 'swatches' });
+  b.colors.forEach((c, i) => {
+    const input = h('input', { type: 'color', 'aria-label': 'Gradient color ' + (i + 1) });
+    input.value = c;
+    const hex = h('span', { class: 'hex' }, c);
+    input.addEventListener('input', () => { b.colors[i] = input.value; hex.textContent = input.value; b.autoMatch = false; changed(); });
+    const rm = h('button', { type: 'button', class: 'mini-btn', title: 'Remove this color', 'aria-label': 'Remove color ' + (i + 1), html: icon('close') });
+    rm.disabled = b.colors.length <= 2;
+    rm.addEventListener('click', () => { b.colors.splice(i, 1); b.autoMatch = false; pushHistory(); renderPanel(); requestRender(); });
+    swatches.append(h('div', { class: 'swatch-row' }, input, hex, rm));
+  });
+  const addBtn = button('Add color', 'plus', () => {
+    const last = b.colors[b.colors.length - 1] || '#888888', [hh, s, l] = rgbToHsl(...hexToRgb(last));
+    b.colors.push(hslHex(hh + 0.12, s, l)); b.autoMatch = false; pushHistory(); renderPanel(); requestRender();
+  }, 'small');
+  addBtn.disabled = b.colors.length >= 8;
+
+  const playBtn = h('button', { type: 'button', class: 'btn wide' });
+  const updPlay = () => { playBtn.innerHTML = label(anim.playing ? 'pause' : 'play', anim.playing ? 'Pause animation' : 'Play animation'); };
+  playBtn.addEventListener('click', () => setPlaying(!anim.playing));
+  refreshers.push(updPlay); updPlay();
+
+  box.append(
+    group('Animated gradient',
+      h('p', { class: 'note' }, 'Soft colored shapes drift behind your thumbnail. Pause on the frame you like, then download.'),
+      h('div', { class: 'row-btns' }, playBtn),
+      slider({ label: 'Frame', min: 0, max: 600, step: 0.1, digits: 1, get: () => anim.t, set: v => { anim.t = Math.max(0, v); state.bg.time = anim.t; } })
+    ),
+    group('Colors',
+      h('div', { class: 'row-btns' },
+        button('Match album cover', 'drop', () => { if (matchCover()) { pushHistory(); renderPanel(); requestRender(); } }, 'primary wide')),
+      switchRow('Auto-match', { label: 'Match the cover automatically when it changes', get: () => b.autoMatch, set: v => { b.autoMatch = v; if (v) matchCover(true); }, rebuild: true }),
+      swatches,
+      h('div', { class: 'row-btns' }, addBtn,
+        button('Random colors', 'shuffle', () => { applyPalette(randomPalette()); b.autoMatch = false; pushHistory(); renderPanel(); requestRender(); }, 'small')),
+      colorField({ label: 'Backdrop', get: () => b.base, set: v => { b.base = v; b.autoMatch = false; } }),
+      slider({ label: 'Saturation', min: 0, max: 200, step: 1, get: () => b.saturation, set: v => b.saturation = Math.max(0, v) })
+    ),
+    group('Motion',
+      slider({ label: 'Speed', min: 0, max: 300, step: 1, get: () => b.speed, set: v => b.speed = Math.max(0, v) }),
+      slider({ label: 'Drift distance', min: 0, max: 200, step: 1, get: () => b.move, set: v => b.move = Math.max(0, v) }),
+      button('Shuffle layout', 'shuffle', () => { b.seed = 1 + Math.floor(Math.random() * 9998); changed(); }, 'small')
+    ),
+    group('Shapes and blur',
+      slider({ label: 'Blur intensity', min: 0, max: 100, step: 1, get: () => b.softness, set: v => b.softness = clamp(v, 0, 100) }),
+      slider({ label: 'Shape size', min: 40, max: 220, step: 1, get: () => b.size, set: v => b.size = Math.max(10, v) }),
+      slider({ label: 'Number of shapes', min: 2, max: 8, step: 1, get: () => b.blobs, set: v => b.blobs = clamp(Math.round(v), 1, 8) }),
+      selectField({ label: 'Blending', options: [['normal', 'Normal'], ['screen', 'Screen (brighter)'], ['glow', 'Glow (strongest)']], get: () => b.blend, set: v => b.blend = v })
+    ),
+    group('Lighting',
+      slider({ label: 'Light strength', min: 0, max: 100, step: 1, get: () => b.light.intensity, set: v => b.light.intensity = clamp(v, 0, 100) }),
+      slider({ label: 'Light size', min: 10, max: 150, step: 1, get: () => b.light.size, set: v => b.light.size = Math.max(5, v) }),
+      slider({ label: 'Light left/right', min: 0, max: 100, step: 1, get: () => b.light.x, set: v => b.light.x = v }),
+      slider({ label: 'Light up/down', min: 0, max: 100, step: 1, get: () => b.light.y, set: v => b.light.y = v }),
+      colorField({ label: 'Light color', get: () => b.light.color, set: v => b.light.color = v }),
+      switchRow('Light drifts', { label: 'Let the light drift', get: () => b.light.drift, set: v => b.light.drift = v, rebuild: false }),
+      slider({ label: 'Brightness', min: -100, max: 100, step: 1, get: () => b.brightness, set: v => b.brightness = clamp(v, -100, 100) }),
+      slider({ label: 'Dark edges', min: 0, max: 100, step: 1, get: () => b.vignette, set: v => b.vignette = clamp(v, 0, 100) }),
+      slider({ label: 'Film grain', min: 0, max: 100, step: 1, get: () => b.grain, set: v => b.grain = clamp(v, 0, 100) })
+    ),
+    group('', h('div', { class: 'row-btns' }, button('Reset background', 'reset', () => {
+      state.bg = defaultBackground(); if (state.bg.autoMatch) matchCover(true);
+      anim.t = 0; pushHistory(); renderPanel(); requestRender();
+    }, 'wide')))
   );
-  if (b.mode === 'image') parts.push(
-    h('div', { class: 'row-btns' }, button(b.imgId ? 'Change background image' : 'Upload background image', 'upload', () => $('#bgFile').click(), 'wide')),
-    slider({ label: 'Zoom', min: 1, max: 4, step: 0.01, digits: 2, get: () => b.zoom, set: v => b.zoom = Math.max(1, v) }),
-    slider({ label: 'Darken', min: 0, max: 90, step: 1, get: () => Math.round(b.dim * 100), set: v => b.dim = clamp(v, 0, 100) / 100 })
-  );
-  if (b.mode === 'blur') parts.push(
-    h('p', { class: 'note' }, 'Uses your album cover, stretched and blurred behind everything.'),
-    slider({ label: 'Blur', min: 0, max: 250, step: 1, get: () => b.blur, set: v => b.blur = Math.max(0, v) }),
-    slider({ label: 'Zoom', min: 1, max: 3, step: 0.01, digits: 2, get: () => b.zoom, set: v => b.zoom = Math.max(1, v) }),
-    slider({ label: 'Darken', min: 0, max: 90, step: 1, get: () => Math.round(b.dim * 100), set: v => b.dim = clamp(v, 0, 100) / 100 })
-  );
-  box.append(group('Background', ...parts));
 }
 
 /* ---------- Object helpers ---------- */
 function resetObject(id) {
-  const d = makeDefaultState().objects[id];
+  const d = clone(JSON.parse(TEMPLATE).objects[id]);
   if (!d) return;
   if (id === 'cover') d.imgId = state.objects.cover.imgId;   // keep the chosen image
   state.objects[id] = d;
@@ -862,6 +1234,93 @@ function deleteText(id) {
   sel = 'cover';
   pushHistory(); renderLayers(); renderPanel(); requestRender();
 }
+
+/* =====================================================================
+   Grid, rulers and snapping settings panel
+   ===================================================================== */
+let gridRefreshers = [];
+function syncToolbar() {
+  $('#gridBtn').setAttribute('aria-pressed', String(view.grid));
+  $('#snapBtn').setAttribute('aria-pressed', String(view.snapGrid));
+  $('#rulerBtn').setAttribute('aria-pressed', String(view.rulers));
+}
+function viewChanged() {
+  saveView(); syncToolbar(); rulerKey = '';
+  requestRender();
+  gridRefreshers.forEach(f => f());
+}
+const QUICK_GRIDS = [[3, 3, '3×3'], [4, 4, '4×4'], [6, 6, '6×6'], [8, 8, '8×8'], [12, 12, '12×12'], [16, 9, '16×9']];
+
+function buildGridPanel() {
+  const box = $('#gridPanel');
+  box.innerHTML = ''; gridRefreshers = [];
+  withUI({ reg: () => gridRefreshers, fire: viewChanged, rebuild: buildGridPanel }, () => {
+    const readout = h('p', { class: 'note' });
+    gridRefreshers.push(() => {
+      const g = gridLines();
+      readout.textContent = view.gridMode === 'divisions'
+        ? `${Math.round(view.cols)} columns by ${Math.round(view.rows)} rows. Each cell is ${Math.round(gridStep('x'))} by ${Math.round(gridStep('y'))} px.`
+        : `Square cells of ${Math.round(view.cell)} px, ${g.xs.length - 1} columns by ${g.ys.length - 1} rows, centered on the canvas.`;
+    });
+    const head = h('div', { class: 'gp-head' }, h('h2', {}, 'Grid, rulers and snapping'),
+      h('button', { type: 'button', class: 'mini-btn', 'aria-label': 'Close', html: icon('close'), onclick: closeGridPanel }));
+
+    const quick = segField({
+      label: 'Quick grids', stack: true,
+      options: QUICK_GRIDS.map(([c, r, t]) => [t, t, `${t} grid`]),
+      get: () => (view.gridMode === 'divisions' ? (QUICK_GRIDS.find(([c, r]) => c === Math.round(view.cols) && r === Math.round(view.rows)) || [0, 0, ''])[2] : ''),
+      set: t => { const q = QUICK_GRIDS.find(x => x[2] === t); view.gridMode = 'divisions'; view.cols = q[0]; view.rows = q[1]; view.grid = true; },
+      rebuild: true
+    });
+
+    box.append(head,
+      group('Layout',
+        quick,
+        segField({ label: 'Type', options: [['divisions', 'Equal divisions'], ['square', 'Square cells']], get: () => view.gridMode, set: v => { view.gridMode = v; }, rebuild: true }),
+        ...(view.gridMode === 'divisions' ? [
+          slider({ label: 'Columns', min: 1, max: 48, step: 1, get: () => view.cols, set: v => view.cols = clamp(Math.round(v), 1, 200) }),
+          slider({ label: 'Rows', min: 1, max: 48, step: 1, get: () => view.rows, set: v => view.rows = clamp(Math.round(v), 1, 200) })
+        ] : [
+          slider({ label: 'Cell size', min: 20, max: 1000, step: 1, get: () => view.cell, set: v => view.cell = clamp(Math.round(v), 20, 5000) })
+        ]),
+        slider({ label: 'Margin', min: 0, max: 600, step: 1, get: () => view.margin, set: v => view.margin = clamp(Math.round(v), 0, 1200) }),
+        readout
+      ),
+      group('Snapping',
+        switchRow('Snap to grid', { label: 'Snap to grid', get: () => view.snapGrid, set: v => { view.snapGrid = v; if (v) view.grid = true; }, rebuild: false }),
+        switchRow('Smart guides', { label: 'Snap to other layers, text baselines, canvas edges and your guides', get: () => view.smart, set: v => view.smart = v, rebuild: false }),
+        slider({ label: 'Snap distance', min: 2, max: 40, step: 1, get: () => view.snapPx, set: v => view.snapPx = clamp(Math.round(v), 1, 80) }),
+        h('p', { class: 'note' }, 'Edges, centers and text baselines stick to grid lines, other layers, the canvas and your guides. Hold Alt while dragging to turn snapping off.')
+      ),
+      group('Show',
+        switchRow('Grid', { label: 'Show grid', get: () => view.grid, set: v => view.grid = v, rebuild: false }),
+        switchRow('Rulers', { label: 'Show rulers', get: () => view.rulers, set: v => view.rulers = v, rebuild: false }),
+        switchRow('Center lines', { label: 'Show center lines', get: () => view.center, set: v => view.center = v, rebuild: false }),
+        switchRow('Template lines', { label: 'Show the PSD template alignment lines (text edge, baselines, cover edges)', get: () => view.template, set: v => view.template = v, rebuild: false }),
+        switchRow('YouTube badge area', { label: 'Show the area YouTube covers with the video length', get: () => view.ytZone, set: v => view.ytZone = v, rebuild: false })
+      ),
+      group('Grid look',
+        colorField({ label: 'Color', get: () => view.gridColor, set: v => view.gridColor = v }),
+        slider({ label: 'Opacity', min: 5, max: 100, step: 1, get: () => Math.round(view.gridOpacity * 100), set: v => view.gridOpacity = clamp(v, 1, 100) / 100 }),
+        slider({ label: 'Line thickness', min: 0.5, max: 4, step: 0.5, digits: 1, get: () => view.gridWidth, set: v => view.gridWidth = clamp(v, 0.5, 8) })
+      ),
+      h('div', { class: 'row-btns gp-foot' },
+        button('Clear guides', 'trash', () => { state.guides = { v: [], h: [] }; pushHistory(); requestRender(); }, 'small'),
+        button('Reset grid settings', 'reset', () => { Object.assign(view, VIEW_DEFAULTS); viewChanged(); buildGridPanel(); }, 'small'))
+    );
+  });
+  gridRefreshers.forEach(f => f());
+}
+function openGridPanel() {
+  buildGridPanel();
+  $('#gridPanel').hidden = false;
+  $('#gridSettingsBtn').setAttribute('aria-expanded', 'true');
+}
+function closeGridPanel() {
+  $('#gridPanel').hidden = true;
+  $('#gridSettingsBtn').setAttribute('aria-expanded', 'false');
+}
+function toggleGridPanel() { $('#gridPanel').hidden ? openGridPanel() : closeGridPanel(); }
 
 /* =====================================================================
    Canvas interaction
@@ -888,13 +1347,79 @@ function handleAt(p) {
   }
   return null;
 }
+function guideAt(p) {
+  const r = 6 * unit();
+  for (let i = 0; i < state.guides.v.length; i++) if (Math.abs(p.x - state.guides.v[i]) < r) return { axis: 'v', i };
+  for (let i = 0; i < state.guides.h.length; i++) if (Math.abs(p.y - state.guides.h[i]) < r) return { axis: 'h', i };
+  return null;
+}
 
+/* ---------- Snapping ---------- */
+function snapCandidates(excludeId) {
+  const xs = [], ys = [];
+  if (view.smart) {
+    xs.push(0, W / 2, W); ys.push(0, H / 2, H);
+    xs.push(...state.guides.v); ys.push(...state.guides.h);
+    for (const id of state.order) {
+      if (id === excludeId) continue;
+      const o = obj(id);
+      if (!o || !o.visible) continue;
+      const a = aabb(boxOf(o));
+      xs.push(a.minx, (a.minx + a.maxx) / 2, a.maxx);
+      ys.push(a.miny, (a.miny + a.maxy) / 2, a.maxy);
+      if (o.type === 'text' && o.rot === 0) { const L = layoutText(o); L.lines.forEach((_, i) => ys.push(o.y + i * o.lh * o.size)); }
+    }
+  }
+  if (view.snapGrid) { const g = gridLines(); xs.push(...g.xs); ys.push(...g.ys); }
+  if (view.template) { xs.push(...templateLines.xs); ys.push(...templateLines.ys); }
+  return { xs, ys };
+}
+function bestSnap(feats, cands, thr) {
+  let best = null;
+  for (const f of feats) for (const c of cands) {
+    const d = c - f;
+    if (Math.abs(d) < thr && (best === null || Math.abs(d) < Math.abs(best))) best = d;
+  }
+  return best;
+}
+function snapMove(o, start, b0, tx, ty, thr) {
+  const cand = snapCandidates(sel);
+  const ab = aabb(b0, tx, ty);
+  const fx = [ab.minx, tx, ab.maxx], fy = [ab.miny, ty, ab.maxy];
+  const baseCount = o.type === 'text' && o.rot === 0 ? textLines(o).length : 0;
+  const baseline = i => start.y + (ty - b0.cy) + i * start.lh * start.size;
+  for (let i = 0; i < baseCount; i++) fy.push(baseline(i));
+  const dx = bestSnap(fx, cand.xs, thr), dy = bestSnap(fy, cand.ys, thr);
+  const guides = [], seen = new Set();
+  const collect = (axis, feats, cands, d) => {
+    if (d === null) return;
+    feats.forEach(f => cands.forEach(c => {
+      if (Math.abs(c - (f + d)) < 0.6 && !seen.has(axis + Math.round(c))) { seen.add(axis + Math.round(c)); guides.push({ axis, pos: c }); }
+    }));
+  };
+  collect('v', fx, cand.xs, dx); collect('h', fy, cand.ys, dy);
+  return { dx: dx || 0, dy: dy || 0, guides };
+}
+function snapGridPos(axis, pos, ev) {
+  if (!view.snapGrid || (ev && ev.altKey)) return pos;
+  const g = gridLines(), thr = view.snapPx * unit(), arr = axis === 'v' ? g.xs : g.ys;
+  const d = bestSnap([pos], arr, thr);
+  return d === null ? pos : pos + d;
+}
+
+/* ---------- Pointer handling ---------- */
 let drag = null;
 stage.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
   const p = ptr(e);
   let hd = sel !== 'background' ? handleAt(p) : null;
   if (!hd) {
+    const g = guideAt(p);
+    if (g) {
+      stage.setPointerCapture(e.pointerId);
+      drag = { kind: 'guide', axis: g.axis, i: g.i };
+      e.preventDefault(); return;
+    }
     const id = hitObj(p);
     if (!id) { if (sel !== 'background') select('background'); return; }
     if (id !== sel) select(id);
@@ -906,22 +1431,35 @@ stage.addEventListener('pointerdown', e => {
   e.preventDefault();
 });
 
+const coordsEl = $('#coords');
+function setCoords(p) {
+  coordsEl.innerHTML = p ? `X ${Math.round(p.x)}&nbsp;&nbsp;Y ${Math.round(p.y)}` : 'X –&nbsp;&nbsp;Y –';
+}
 stage.addEventListener('pointermove', e => {
   const p = ptr(e);
+  mouse = p; setCoords(p);
   if (!drag) {
     const hd = sel !== 'background' ? handleAt(p) : null;
+    const g = !hd && guideAt(p);
     if (hd) stage.style.cursor = hd.kind === 'rotate' ? 'grab' : ((hd.sx * hd.sy > 0) ? 'nwse-resize' : 'nesw-resize');
+    else if (g) stage.style.cursor = g.axis === 'v' ? 'col-resize' : 'row-resize';
     else stage.style.cursor = hitObj(p) ? 'move' : 'default';
+    requestRender();
     return;
   }
-  const o = obj(drag.id), st = drag.start, b0 = drag.box0, u = unit();
+  const u = unit();
+  if (drag.kind === 'guide') {
+    const pos = snapGridPos(drag.axis, drag.axis === 'v' ? p.x : p.y, e);
+    state.guides[drag.axis][drag.i] = Math.round(pos);
+    requestRender(); return;
+  }
+  const o = obj(drag.id), st = drag.start, b0 = drag.box0;
   dragGuides = [];
   if (drag.kind === 'move') {
     let tx = b0.cx + (p.x - drag.p0.x), ty = b0.cy + (p.y - drag.p0.y);
     if (!e.altKey) {
-      const thr = 9 * u;
-      if (Math.abs(tx - W / 2) < thr) { tx = W / 2; dragGuides.push('v'); }
-      if (Math.abs(ty - H / 2) < thr) { ty = H / 2; dragGuides.push('h'); }
+      const sn = snapMove(o, st, b0, tx, ty, view.snapPx * u);
+      tx += sn.dx; ty += sn.dy; dragGuides = sn.guides;
     }
     const dx = tx - b0.cx, dy = ty - b0.cy;
     if (o.type === 'text') { o.x = st.x + dx; o.y = st.y + dy; } else { o.cx = st.cx + dx; o.cy = st.cy + dy; }
@@ -948,28 +1486,66 @@ stage.addEventListener('pointermove', e => {
   refreshAll();
   requestRender();
 });
+stage.addEventListener('pointerleave', () => { if (!drag) { mouse = null; setCoords(null); requestRender(); } });
 function endDrag() {
   if (!drag) return;
+  if (drag.kind === 'guide') {
+    const arr = state.guides[drag.axis], v = arr[drag.i], lim = drag.axis === 'v' ? W : H;
+    if (v <= 0 || v >= lim) arr.splice(drag.i, 1);     // dragged off the canvas: remove it
+  }
   drag = null; dragGuides = [];
   pushHistory(); requestRender();
 }
 stage.addEventListener('pointerup', endDrag);
 stage.addEventListener('pointercancel', endDrag);
 
-/* keyboard */
+/* pull guides out of the rulers: top ruler makes horizontal lines, left ruler vertical ones */
+function startRulerDrag(axis, e) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  const el = e.currentTarget;
+  el.setPointerCapture(e.pointerId);
+  const move = ev => {
+    const p = ptr(ev);
+    liveGuide = { axis, pos: snapGridPos(axis, axis === 'v' ? p.x : p.y, ev) };
+    mouse = p; setCoords(p); requestRender();
+  };
+  const up = () => {
+    el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+    const g = liveGuide; liveGuide = null;
+    if (g && g.pos > 0 && g.pos < (axis === 'v' ? W : H)) { state.guides[axis].push(Math.round(g.pos)); pushHistory(); }
+    requestRender();
+  };
+  el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  move(e);
+}
+rulerH.addEventListener('pointerdown', e => startRulerDrag('h', e));
+rulerV.addEventListener('pointerdown', e => startRulerDrag('v', e));
+
+/* ---------- Keyboard ---------- */
 document.addEventListener('keydown', e => {
   const tag = (document.activeElement && document.activeElement.tagName) || '';
   const typing = /INPUT|TEXTAREA|SELECT/.test(tag) && document.activeElement.type !== 'range' && document.activeElement.type !== 'checkbox';
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); return; }
-  if (e.key === 'Escape' && !$('#presetModal').hidden) { closePresets(); return; }
-  if (typing || mod) return;
+  if (e.key === 'Escape') {
+    if (!$('#presetModal').hidden) { closePresets(); return; }
+    if (!$('#gridPanel').hidden) { closeGridPanel(); return; }
+  }
+  if (typing || mod || tag === 'SELECT') return;
+  if (!e.shiftKey && !e.altKey) {
+    const k = e.key.toLowerCase();
+    if (k === 'g') { view.grid = !view.grid; viewChanged(); return; }
+    if (k === 's') { view.snapGrid = !view.snapGrid; if (view.snapGrid) view.grid = true; viewChanged(); return; }
+    if (k === 'r') { view.rulers = !view.rulers; viewChanged(); return; }
+  }
   const o = cur();
   if (!o) return;
-  const step = e.shiftKey ? 20 : 1;
-  const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
-  if (mv && tag !== 'SELECT' && document.activeElement.type !== 'range') {
+  const gridMove = view.snapGrid && view.grid;
+  const stepX = e.shiftKey ? (gridMove ? gridStep('x') : 10) : 1, stepY = e.shiftKey ? (gridMove ? gridStep('y') : 10) : 1;
+  const mv = { ArrowLeft: [-stepX, 0], ArrowRight: [stepX, 0], ArrowUp: [0, -stepY], ArrowDown: [0, stepY] }[e.key];
+  if (mv && document.activeElement.type !== 'range') {
     e.preventDefault();
     if (o.type === 'text') { o.x += mv[0]; o.y += mv[1]; } else { o.cx += mv[0]; o.cy += mv[1]; }
     changed();
@@ -986,26 +1562,18 @@ async function setCoverFromSrc(src, id) {
     const rid = await registerImage(src, id);
     const o = obj('cover');
     o.imgId = rid; o.zoom = 1; o.panX = 0; o.panY = 0;
-    pushHistory(); requestRender(); refreshAll();
+    if (state.bg.autoMatch) matchCover(true);
+    pushHistory(); requestRender();
+    if (sel === 'background') renderPanel(); else refreshAll();
     return true;
   } catch (e) { toast('That image could not be opened. Try a PNG or JPG file.', true); return false; }
 }
 async function handleCoverFile(file) {
   if (!file || !/^image\//.test(file.type)) { toast('Please choose an image file (PNG works best).', true); return; }
   const src = await readFileAsDataURL(file);
-  if (await setCoverFromSrc(src)) { select('cover'); toast('Album cover updated.'); }
-}
-async function handleBgFile(file) {
-  if (!file || !/^image\//.test(file.type)) { toast('Please choose an image file.', true); return; }
-  try {
-    const src = await readFileAsDataURL(file);
-    state.bg.imgId = await registerImage(src);
-    state.bg.mode = 'image';
-    pushHistory(); renderPanel(); requestRender();
-  } catch (e) { toast('That image could not be opened.', true); }
+  if (await setCoverFromSrc(src)) { select('cover'); toast(state.bg.autoMatch ? 'Album cover updated. The background now matches its colors.' : 'Album cover updated.'); }
 }
 $('#coverFile').addEventListener('change', e => { handleCoverFile(e.target.files[0]); e.target.value = ''; closePresets(); });
-$('#bgFile').addEventListener('change', e => { handleBgFile(e.target.files[0]); e.target.value = ''; });
 $('#fontFile').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = '';
   const o = cur();
@@ -1082,21 +1650,18 @@ async function exportImage() {
     await ensureAllFonts();
     const s = w / W, c = document.createElement('canvas');
     c.width = w; c.height = Math.round(H * s);
-    const ctx = c.getContext('2d');
-    renderScene(ctx, s, { exportFill: fmt === 'jpg' ? '#14161c' : null });
+    renderScene(c.getContext('2d'), s, {});          // the animated background is captured at its current frame
+    const base = `KanyevaUnreleasder-${slug(obj('track').text) || 'thumbnail'}-${c.width}x${c.height}`;
     if (fmt === 'jpg') {
-      // JPG can't hold transparency, so put it on a solid base first
-      const flat = document.createElement('canvas'); flat.width = c.width; flat.height = c.height;
-      const fx = flat.getContext('2d'); fx.fillStyle = '#14161c'; fx.fillRect(0, 0, flat.width, flat.height); fx.drawImage(c, 0, 0);
-      let q = 0.95, blob = await canvasToBlob(flat, 'image/jpeg', q);
-      while (blob && blob.size > YT_LIMIT && w <= 1920 && q > 0.5) { q -= 0.05; blob = await canvasToBlob(flat, 'image/jpeg', q); }
+      let q = 0.95, blob = await canvasToBlob(c, 'image/jpeg', q);
+      while (blob && blob.size > YT_LIMIT && w <= 1920 && q > 0.5) { q -= 0.05; blob = await canvasToBlob(c, 'image/jpeg', q); }
       if (!blob) throw new Error('blocked');
-      download(blob, `KanyevaUnreleasder-${slug(obj('track').text) || 'thumbnail'}-${c.width}x${c.height}.jpg`);
+      download(blob, base + '.jpg');
       toast(`Saved a ${(blob.size / 1048576).toFixed(2)} MB JPG.` + (blob.size > YT_LIMIT ? ' YouTube allows up to 2 MB, so pick a smaller size.' : ''));
     } else {
       const blob = await canvasToBlob(c, 'image/png');
       if (!blob) throw new Error('blocked');
-      download(blob, `KanyevaUnreleasder-${slug(obj('track').text) || 'thumbnail'}-${c.width}x${c.height}.png`);
+      download(blob, base + '.png');
       toast(`Saved a ${(blob.size / 1048576).toFixed(2)} MB PNG.` + (blob.size > YT_LIMIT && w <= 1920 ? ' It is over YouTube\'s 2 MB limit, so try JPG.' : ''));
     }
   } catch (err) {
@@ -1110,12 +1675,13 @@ async function exportImage() {
 }
 
 function saveProject() {
+  state.bg.time = anim.t;
   const used = new Set();
   const addId = id => { if (id && images.has(id) && id !== 'logo') used.add(id); };
-  addId(state.bg.imgId); addId(obj('cover').imgId);
+  addId(obj('cover').imgId);
   const imgs = {};
   used.forEach(id => { imgs[id] = images.get(id).src; });
-  const blob = new Blob([JSON.stringify({ app: 'ku-thumbnail-generator', version: 1, state, images: imgs })], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ app: 'ku-thumbnail-generator', version: 2, state, images: imgs })], { type: 'application/json' });
   download(blob, `KanyevaUnreleasder-project-${slug(obj('track').text) || 'thumbnail'}.json`);
   toast('Project saved. Open it later with "Open project".');
 }
@@ -1124,8 +1690,14 @@ async function openProject(file) {
     const data = JSON.parse(await file.text());
     if (data.app !== 'ku-thumbnail-generator') throw new Error('bad');
     for (const [id, src] of Object.entries(data.images || {})) await registerImage(src, id);
-    state = data.state;
+    const st = data.state;
+    // projects saved by beta 0.1 have the old background settings
+    if (!st.bg || !Array.isArray(st.bg.colors)) st.bg = defaultBackground();
+    st.bg = Object.assign(defaultBackground(), st.bg, { light: Object.assign(defaultBackground().light, st.bg.light || {}) });
+    if (!st.guides) st.guides = { v: [], h: [] };
+    state = st;
     sel = 'cover';
+    anim.t = state.bg.time || 0;
     await ensureAllFonts();
     pushHistory(); renderLayers(); renderPanel(); requestRender();
     toast('Project opened.');
@@ -1135,7 +1707,10 @@ async function openProject(file) {
 /* toolbar wiring */
 $('#undoBtn').innerHTML = icon('undo');
 $('#redoBtn').innerHTML = icon('redo');
-$('#guidesBtn').innerHTML = label('grid', 'Guides');
+$('#gridBtn').innerHTML = label('grid', 'Grid');
+$('#snapBtn').innerHTML = label('magnet', 'Snap');
+$('#rulerBtn').innerHTML = label('ruler', 'Rulers');
+$('#gridSettingsBtn').innerHTML = label('sliders', 'Grid settings');
 $('#resetBtn').innerHTML = label('reset', 'Reset');
 $('#saveProject').innerHTML = label('save', 'Save project');
 $('#openProject').innerHTML = label('folder', 'Open project');
@@ -1145,10 +1720,17 @@ document.querySelectorAll('.dialog-head [data-close]').forEach(b => b.innerHTML 
 
 $('#undoBtn').addEventListener('click', undo);
 $('#redoBtn').addEventListener('click', redo);
-$('#guidesBtn').addEventListener('click', e => { showGuides = !showGuides; e.currentTarget.setAttribute('aria-pressed', String(showGuides)); requestRender(); });
-$('#resetBtn').addEventListener('click', async () => {
+$('#gridBtn').addEventListener('click', () => { view.grid = !view.grid; viewChanged(); });
+$('#snapBtn').addEventListener('click', () => { view.snapGrid = !view.snapGrid; if (view.snapGrid) view.grid = true; viewChanged(); });
+$('#rulerBtn').addEventListener('click', () => { view.rulers = !view.rulers; viewChanged(); });
+$('#gridSettingsBtn').addEventListener('click', toggleGridPanel);
+document.addEventListener('pointerdown', e => {
+  const gp = $('#gridPanel');
+  if (!gp.hidden && !gp.contains(e.target) && !$('#gridSettingsBtn').contains(e.target)) closeGridPanel();
+});
+$('#resetBtn').addEventListener('click', () => {
   if (!confirm('Reset everything back to the template? You can still undo this.')) return;
-  state = makeDefaultState(); sel = 'cover';
+  state = JSON.parse(TEMPLATE); sel = 'cover'; anim.t = 0;
   pushHistory(); renderLayers(); renderPanel(); requestRender();
 });
 $('#addTextBtn').addEventListener('click', addText);
@@ -1156,23 +1738,50 @@ $('#downloadBtn').addEventListener('click', exportImage);
 $('#saveProject').addEventListener('click', saveProject);
 $('#openProject').addEventListener('click', () => $('#projectFile').click());
 $('#projectFile').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) openProject(f); });
-window.addEventListener('resize', requestRender);
+window.addEventListener('resize', () => { rulerKey = ''; requestRender(); });
 
 /* =====================================================================
    Start
    ===================================================================== */
+let lastTs = 0, lastUiRefresh = 0;
+function tick(ts) {
+  const dt = Math.min(0.1, (ts - lastTs) / 1000);
+  lastTs = ts;
+  if (state && anim.playing && !exporting && state.bg.speed > 0) {
+    anim.t += dt * state.bg.speed / 100;
+    if (anim.t > 600) anim.t = 0;
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    renderPreview();
+    if (sel === 'background' && ts - lastUiRefresh > 250) { lastUiRefresh = ts; refreshAll(); }
+  }
+  requestAnimationFrame(tick);
+}
+
 (async function init() {
   buildPresetGrid();
+  const fontOk = await mainFontAvailable();
   try { await registerImage('assets/logo.png', 'logo'); } catch (e) { /* logo missing, ignore */ }
   if (PRESETS[0]) { try { await registerImage(PRESETS[0].src, DEFAULT_COVER_ID); } catch (e) { /* ignore */ } }
-  state = makeDefaultState();
-  if (!images.has(state.objects.cover.imgId)) state.objects.cover.imgId = null;
+
+  // build the calibrated template once, then work from copies of it
+  const st = makeDefaultState();
+  if (!images.has(st.objects.cover.imgId)) st.objects.cover.imgId = null;
+  await Promise.all(Object.values(st.objects).filter(o => o.type === 'text').map(ensureFont));
+  calibrateState(st);
+  const reg = images.get(st.objects.cover.imgId);
+  if (reg) applyPaletteTo(st.bg, extractPalette(reg, 4));
+  buildTemplateLines(st);
+  TEMPLATE = JSON.stringify(st);
+
+  state = JSON.parse(TEMPLATE);
   pushHistory();
+  syncToolbar(); setCoords(null);
   renderLayers(); renderPanel(); renderPreview();
-  await ensureAllFonts();
   requestRender();
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(requestRender);
-  window.__ku = { get state() { return state; }, render: renderScene, W, H, ensureAllFonts, exportImage };  // handy for debugging
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { rulerKey = ''; requestRender(); });
+  requestAnimationFrame(tick);
+  if (!fontOk) toast('Helvetica Rounded Bold could not be loaded. Check that the file is at assets/Helvetica Rounded Bold/Helvetica Rounded Bold.otf (the name is case sensitive).', true);
+  window.__ku = { get state() { return state; }, anim, view, render: renderScene, W, H, ensureAllFonts, exportImage, gridLines, templateLines: () => templateLines };  // handy for debugging
 })();
 
 })();
