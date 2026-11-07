@@ -2,6 +2,14 @@
    Look: studio hardware. Graphite panels, a VU-meter amber, fader-style sliders,
    and a strip of masking tape for the beta label. */
 
+
+/* Thumbnail font, loaded from the repository */
+@font-face{
+  font-family:'Helvetica Rounded Bold';
+  src:url('../assets/Helvetica%20Rounded%20Bold/Helvetica%20Rounded%20Bold.otf') format('opentype');
+  font-weight:700;font-style:normal;font-display:swap;
+}
+
 :root{
   --bg:#14161c;
   --panel:#1c1f27;
@@ -90,7 +98,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 /* ---------- Toolbar ---------- */
 .toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
 .toolbar .sep{width:1px;height:24px;background:var(--line);margin:0 4px}
-.toolbar .hint{margin-left:auto;color:var(--muted);font-size:.84rem}
+
 
 /* ---------- Canvas ---------- */
 .canvas-wrap{
@@ -256,7 +264,6 @@ code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding
   .app{grid-template-columns:1fr}
   .inspector{position:static;max-height:none}
   .props{overflow:visible}
-  .toolbar .hint{display:none}
 }
 @media (max-width:560px){
   .field{grid-template-columns:1fr}
@@ -264,4 +271,48 @@ code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding
 }
 @media (prefers-reduced-motion:reduce){
   *{transition:none!important;animation:none!important}
+}
+
+
+/* ---------- Toolbar extras ---------- */
+.toolbar-wrap{position:relative;margin-bottom:12px}
+.toolbar-wrap .toolbar{margin-bottom:0}
+.toolbar .coords{
+  margin-left:auto;font-variant-numeric:tabular-nums;font-size:13px;color:var(--muted);
+  background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 10px;min-width:118px;text-align:center;
+}
+.stagehint{margin:10px 0 0;color:var(--muted);font-size:.84rem;max-width:90ch}
+
+/* ---------- Stage with rulers ---------- */
+.stage-frame{
+  display:grid;grid-template-columns:24px minmax(0,1fr);grid-template-rows:24px auto;
+  background:#1c1f27;border-radius:6px;box-shadow:0 0 0 1px var(--line),0 24px 60px rgba(0,0,0,.5);overflow:hidden;
+}
+.stage-frame .canvas-wrap{grid-column:2;grid-row:2;border-radius:0;box-shadow:none}
+.ruler{display:block;background:#1c1f27;touch-action:none}
+.ruler.h{grid-column:2;grid-row:1;width:100%;height:24px;cursor:s-resize;border-bottom:1px solid var(--line)}
+.ruler.v{grid-column:1;grid-row:2;width:24px;height:100%;cursor:e-resize;border-right:1px solid var(--line)}
+.ruler-corner{grid-column:1;grid-row:1;background:#1c1f27;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.stage-frame.no-rulers{grid-template-columns:0 minmax(0,1fr);grid-template-rows:0 auto}
+.stage-frame.no-rulers .ruler,.stage-frame.no-rulers .ruler-corner{display:none}
+
+/* ---------- Grid settings popover ---------- */
+.gridpanel{
+  position:absolute;z-index:30;top:calc(100% + 8px);left:0;width:min(380px,100%);
+  max-height:min(72vh,640px);overflow:auto;
+  background:var(--panel);border:1px solid #454c60;border-radius:12px;padding:6px 14px 14px;
+  box-shadow:0 24px 70px rgba(0,0,0,.65);
+}
+.gp-head{display:flex;align-items:center;justify-content:space-between;padding:8px 0 2px}
+.gp-head h2{margin:0;font-family:var(--display);font-stretch:112%;font-weight:800;font-size:15px}
+.gp-foot{margin:14px 0 0}
+.gridpanel .group:first-of-type{border-top:0}
+
+/* ---------- Animated background panel ---------- */
+.swatches{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.swatch-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px}
+.swatch-row input[type=color]{width:56px}
+
+@media (max-width:1020px){
+  .gridpanel{position:fixed;left:12px;right:12px;top:auto;bottom:12px;width:auto;max-height:70vh}
 }
