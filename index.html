@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KanyevaUnreleasder Thumbnail Generator (Beta)</title>
+<meta name="description" content="The official thumbnail generator for the KanyevaUnreleasder channel. Beta version.">
+<meta name="theme-color" content="#14161c">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+
+<!-- Thumbnail font (loaded from your repository, declared in css/style.css) -->
+<link rel="preload" href="assets/Helvetica%20Rounded%20Bold/Helvetica%20Rounded%20Bold.otf" as="font" type="font/otf" crossorigin>
+
+<!-- Interface fonts only. The thumbnail itself uses Helvetica Rounded Bold. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap">
+
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="welcome">
+  <div class="brandrow">
+    <img class="brand-logo" src="assets/logo.png" alt="KanyevaUnreleasder logo">
+    <span class="tape" title="This tool is in beta">Beta</span>
+  </div>
+  <h1>Welcome to the KanyevaUnreleasder Thumbnail Generator</h1>
+  <p class="lede">Made only for the KanyevaUnreleasder channel. Pick an album cover, type your titles, then drag, resize and recolor everything until the thumbnail is right.</p>
+  <p class="betanote"><strong>Beta version 0.3.</strong> Updates are on the way, so expect new features and the occasional rough edge.</p>
+</header>
+
+<main class="app">
+  <section class="stage" aria-label="Thumbnail preview">
+    <div class="toolbar-wrap">
+      <div class="toolbar" role="toolbar" aria-label="Editing tools">
+        <button class="btn icon" id="undoBtn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled></button>
+        <button class="btn icon" id="redoBtn" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled></button>
+        <span class="sep"></span>
+        <button class="btn" id="gridBtn" aria-pressed="false" title="Show or hide the grid (G)"></button>
+        <button class="btn" id="snapBtn" aria-pressed="false" title="Make layers stick to the grid (S)"></button>
+        <button class="btn" id="rulerBtn" aria-pressed="true" title="Show or hide the rulers (R). Drag from a ruler to pull out a guide line."></button>
+        <button class="btn" id="gridSettingsBtn" aria-expanded="false" aria-controls="gridPanel" title="Grid, ruler and snapping settings"></button>
+        <span class="sep"></span>
+        <button class="btn" id="resetBtn" title="Reset everything to the template"></button>
+        <span class="coords" id="coords" aria-live="off">X 0&nbsp;&nbsp;Y 0</span>
+      </div>
+      <div class="gridpanel" id="gridPanel" hidden role="dialog" aria-label="Grid, rulers and snapping"></div>
+    </div>
+
+    <div class="stage-frame" id="stageFrame">
+      <div class="ruler-corner"></div>
+      <canvas class="ruler h" id="rulerH" title="Drag down to pull out a horizontal guide"></canvas>
+      <canvas class="ruler v" id="rulerV" title="Drag right to pull out a vertical guide"></canvas>
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="stage" width="1920" height="1080" aria-label="Thumbnail canvas"></canvas>
+        <div class="dropveil" id="dropVeil">Drop an image to use it as the album cover</div>
+      </div>
+    </div>
+    <p class="stagehint">Drag to move. Drag a corner dot to resize from that dot. The round handle rotates. Arrow keys nudge (Shift for a grid step). Hold Alt to move or resize without snapping. The checkerboard stands for the transparent background.</p>
+
+    <div class="exportbar">
+      <div class="export-opts">
+        <label class="mini">Size
+          <select id="expSize">
+            <option value="5000">5000 × 2812 (template size)</option>
+            <option value="3840">3840 × 2160 (4K)</option>
+            <option value="1920">1920 × 1080 (Full HD)</option>
+            <option value="1280" selected>1280 × 720 (YouTube)</option>
+          </select>
+        </label>
+        <p class="exportnote">Downloads as a PNG with a transparent background.</p>
+      </div>
+      <div class="export-actions">
+        <button class="btn" id="saveProject" title="Save your work to a file you can open later"></button>
+        <button class="btn" id="openProject" title="Open a saved project file"></button>
+        <button class="btn primary" id="downloadBtn"></button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="inspector" aria-label="Layers and settings">
+    <div class="layers-head">
+      <h2>Layers</h2>
+      <button class="btn small" id="addTextBtn"></button>
+    </div>
+    <ul class="layers" id="layers"></ul>
+    <div class="props" id="props"></div>
+  </aside>
+</main>
+
+<footer class="foot">KanyevaUnreleasder Thumbnail Generator, beta 0.3. Everything runs in your browser, nothing is uploaded.</footer>
+
+<!-- Preset gallery -->
+<div class="modal" id="presetModal" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="presetTitle">
+    <div class="dialog-head">
+      <h2 id="presetTitle">Choose an album cover</h2>
+      <button class="btn icon" data-close aria-label="Close"></button>
+    </div>
+    <div class="preset-grid" id="presetGrid"></div>
+    <p class="dialog-foot">Want your own presets here? Drop PNG files into <code>assets/presets</code> and list them in <code>js/presets.js</code>.</p>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<input type="file" id="coverFile" accept="image/png,image/jpeg,image/webp" hidden>
+<input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2" hidden>
+<input type="file" id="projectFile" accept=".json,application/json" hidden>
+
+<noscript><p style="padding:2rem;color:#fff">This generator needs JavaScript. Please enable it and reload.</p></noscript>
+
+<script src="js/presets.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
