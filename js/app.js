@@ -1,4 +1,4 @@
-/* KanyevaUnreleasder Thumbnail Generator, beta 0.2
+/* KanyevaUnreleasder Thumbnail Generator, beta 0.3
    Everything runs in the browser. The template geometry comes from
    Kanyeva_Thumbnail_Template_V47.psd (5000 x 2812). */
 (() => {
@@ -11,7 +11,6 @@ const W = 5000, H = 2812;              // template size in px
 const PREVIEW_W = 1920;                // on-screen canvas resolution
 const PS = PREVIEW_W / W;              // preview scale
 const YT_LIMIT = 2 * 1024 * 1024;      // YouTube thumbnail size limit
-const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const $ = (s, root = document) => root.querySelector(s);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -23,29 +22,6 @@ const rgba = (hex, a) => {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 };
-
-/* colour maths */
-function hexToRgb(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
-function rgbToHex(r, g, b) { return '#' + [r, g, b].map(v => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0')).join(''); }
-function rgbToHsl(r, g, b) {
-  r /= 255; g /= 255; b /= 255;
-  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
-  let hh = 0, s = 0;
-  if (mx !== mn) {
-    const d = mx - mn;
-    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
-    hh = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-    hh /= 6;
-  }
-  return [hh, s, l];
-}
-function hslToRgb(hh, s, l) {
-  if (s === 0) { const v = l * 255; return [v, v, v]; }
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
-  const f = t => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
-  return [f(hh + 1 / 3) * 255, f(hh) * 255, f(hh - 1 / 3) * 255];
-}
-const hslHex = (hh, s, l) => rgbToHex(...hslToRgb(((hh % 1) + 1) % 1, clamp(s, 0, 1), clamp(l, 0, 1)));
 
 function h(tag, attrs = {}, ...kids) {
   const e = document.createElement(tag);
@@ -161,56 +137,6 @@ function readFileAsDataURL(file) {
 }
 
 /* =====================================================================
-   Album colour extraction (used to match the background to the cover)
-   ===================================================================== */
-function extractPalette(reg, n = 4) {
-  const S = 64, c = document.createElement('canvas');
-  c.width = c.height = S;
-  const x = c.getContext('2d', { willReadFrequently: true });
-  x.drawImage(reg.img, 0, 0, S, S);
-  const d = x.getImageData(0, 0, S, S).data, bins = new Map();
-  for (let i = 0; i < d.length; i += 4) {
-    if (d[i + 3] < 200) continue;
-    const r = d[i], g = d[i + 1], b = d[i + 2];
-    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
-    const [, s, l] = rgbToHsl(r, g, b);
-    let w = 0.15 + s * (1 - Math.abs(l * 2 - 1));      // lively mid-tones count more
-    if (l > 0.9 || l < 0.1) w *= 0.04;                  // near white / black rarely make a good backdrop color
-    const e = bins.get(key) || { w: 0, r: 0, g: 0, b: 0, n: 0 };
-    e.w += w; e.r += r; e.g += g; e.b += b; e.n++;
-    bins.set(key, e);
-  }
-  const list = [...bins.values()].map(e => ({ w: e.w, r: e.r / e.n, g: e.g / e.n, b: e.b / e.n })).sort((a, b) => b.w - a.w);
-  const dist = (p, q) => Math.hypot(p.r - q.r, p.g - q.g, p.b - q.b);
-  const picked = [];
-  for (const c2 of list) {
-    if (picked.every(p => dist(p, c2) > 75)) picked.push(c2);
-    if (picked.length >= n) break;
-  }
-  if (!picked.length) picked.push({ r: 120, g: 120, b: 160 });
-  let colors = picked.map(p => rgbToHex(p.r, p.g, p.b));
-  // grey, white and black blobs just look muddy: swap them for tints of the cover's strongest hue
-  const hsl = colors.map(c => rgbToHsl(...hexToRgb(c)));
-  const vivid = ([, s, l]) => s * (1 - Math.abs(2 * l - 1));      // near white and near black score about zero
-  const lead = hsl.reduce((a, b2) => (vivid(b2) > vivid(a) ? b2 : a), hsl[0]);
-  if (vivid(lead) >= 0.1) {
-    colors = colors.map((c, i) => {
-      const [, , l] = hsl[i];
-      return vivid(hsl[i]) < 0.1 ? hslHex(lead[0] + 0.03 * (i % 2 ? 1 : -1), clamp(lead[1] * 0.85, 0.4, 0.85), clamp(l, 0.4, 0.7)) : c;
-    });
-  }
-  // make sure there are at least 3 colours to play with
-  let i = 0;
-  while (colors.length < 3) {
-    const [hh, s, l] = rgbToHsl(...hexToRgb(colors[0]));
-    colors.push(hslHex(hh + 0.04 * (i + 1), s, clamp(l + (i % 2 ? -0.18 : 0.18), 0.1, 0.9))); i++;
-  }
-  // backdrop: a deep version of the strongest colour
-  const [bh, bs] = rgbToHsl(...hexToRgb(colors[0]));
-  return { colors, base: hslHex(bh, clamp(bs * 0.55, 0, 0.6), 0.08) };
-}
-
-/* =====================================================================
    State
    ===================================================================== */
 const PRESETS = window.KU_PRESETS || [];
@@ -218,24 +144,17 @@ const presetId = p => 'preset:' + p.src;
 const DEFAULT_COVER_ID = PRESETS[0] ? presetId(PRESETS[0]) : null;
 
 function textObj(extra) {
-  return Object.assign({
+  const o = Object.assign({
     type: 'text', name: 'Text', visible: true,
     text: 'Text', font: MAIN_FONT, weight: 700, italic: false, caps: false,
     size: 160, color: '#ffffff', fill: 'solid', color2: '#ffb524', gradAngle: 90,
     align: 'right', x: 2168, y: 2050, lh: 1, ls: 0, rot: 0, opacity: 1,
     stroke: { on: false, width: 14, color: '#000000' },
-    shadow: { on: false, color: '#000000', opacity: 0.55, blur: 30, x: 14, y: 14 }
+    shadow: { on: false, color: '#000000', opacity: 0.55, blur: 30, x: 14, y: 14 },
+    keep: true          // keep clear of other layers and inside the canvas
   }, extra);
-}
-
-function defaultBackground() {
-  return {
-    colors: ['#e8483f', '#f2b84b', '#7a4b2f', '#3b6fb6'], base: '#10090c', autoMatch: true,
-    blobs: 5, size: 100, softness: 80, blend: 'normal', seed: 7,
-    speed: 60, move: 100, time: 0,
-    saturation: 100, brightness: 0, vignette: 35, grain: 10,
-    light: { intensity: 30, size: 70, x: 28, y: 22, color: '#fff1d0', drift: true }
-  };
+  if (o.want == null) o.want = o.size;   // the size the user asked for; o.size may be smaller so the text fits
+  return o;
 }
 
 /* Geometry measured from the PSD:
@@ -247,7 +166,6 @@ function defaultBackground() {
 function makeDefaultState() {
   return {
     nextText: 1,
-    bg: defaultBackground(),
     guides: { v: [], h: [] },
     order: ['cover', 'albumTitle', 'artist', 'track', 'logo'],
     objects: {
@@ -277,6 +195,7 @@ function fitTemplateText(o, line, inkWidth, inkRight) {
   const ink = m.actualBoundingBoxLeft + m.actualBoundingBoxRight;
   if (!ink) return;
   o.size = Math.round(1000 * inkWidth / ink * 10) / 10;
+  o.want = o.size;
   ctx.font = fontString(o);
   const m2 = ctx.measureText(line);
   o.x = Math.round((inkRight - m2.actualBoundingBoxRight) * 10) / 10;
@@ -345,122 +264,6 @@ function fillBlurred(ctx, s, blur, color, alpha, pathFn) {
   ctx.shadowOffsetX = BIG; ctx.shadowOffsetY = 0;
   ctx.fillStyle = '#000';
   pathFn(); ctx.fill();
-  ctx.restore();
-}
-
-/* ---------- Animated gradient background ---------- */
-const anim = { t: 0, playing: !REDUCED_MOTION };
-
-function mulberry32(a) {
-  return function () {
-    a |= 0; a = a + 0x6D2B79F5 | 0;
-    let t = Math.imul(a ^ a >>> 15, 1 | a);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-}
-const blobCache = new Map();
-function blobParams(seed) {
-  if (blobCache.has(seed)) return blobCache.get(seed);
-  const r = mulberry32(Math.floor(seed) * 9973 + 11), arr = [];
-  for (let i = 0; i < 8; i++) {
-    arr.push({
-      x: 0.08 + 0.84 * r(), y: 0.1 + 0.8 * r(),
-      ax: 0.10 + 0.22 * r(), ay: 0.10 + 0.22 * r(),
-      fx: 0.30 + 0.50 * r(), fy: 0.30 + 0.50 * r(),
-      px: r() * 6.283, py: r() * 6.283,
-      rs: 0.8 + 0.5 * r(), rf: 0.25 + 0.40 * r(), rp: r() * 6.283
-    });
-  }
-  blobCache.set(seed, arr);
-  return arr;
-}
-const satCache = new Map();
-function satColor(hex, sat) {
-  if (sat === 1) return hex;
-  const key = hex + sat;
-  if (!satCache.has(key)) {
-    const [hh, s, l] = rgbToHsl(...hexToRgb(hex));
-    satCache.set(key, hslHex(hh, clamp(s * sat, 0, 1), l));
-    if (satCache.size > 400) satCache.clear();
-  }
-  return satCache.get(key);
-}
-let noiseTile = null;
-function getNoise() {
-  if (noiseTile) return noiseTile;
-  const c = document.createElement('canvas'); c.width = c.height = 256;
-  const x = c.getContext('2d'), id = x.createImageData(256, 256), r = mulberry32(1234);
-  for (let i = 0; i < id.data.length; i += 4) {
-    const v = r() * 255;
-    id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255;
-  }
-  x.putImageData(id, 0, 0);
-  return (noiseTile = c);
-}
-
-/* Draws the whole background in canvas pixels (cw x ch). s = canvas px per template px. */
-function drawAnimatedBackground(ctx, cw, ch, s, t, b) {
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.fillStyle = b.base; ctx.fillRect(0, 0, cw, ch);
-
-  const P = blobParams(b.seed), cols = b.colors.length ? b.colors : ['#888888'];
-  const n = clamp(Math.round(b.blobs), 1, 8), sat = b.saturation / 100, mv = b.move / 100;
-  const k = clamp(b.softness / 100, 0, 1);
-  const baseR = Math.max(cw, ch) * 0.34 * (b.size / 100);
-  ctx.globalCompositeOperation = ({ normal: 'source-over', screen: 'screen', glow: 'lighter' })[b.blend] || 'source-over';
-  for (let i = 0; i < n; i++) {
-    const p = P[i], col = satColor(cols[i % cols.length], sat);
-    const nx = (p.x + mv * p.ax * Math.sin(t * p.fx + p.px)) * cw;
-    const ny = (p.y + mv * p.ay * Math.cos(t * p.fy + p.py)) * ch;
-    const R = baseR * p.rs * (1 + 0.15 * mv * Math.sin(t * p.rf + p.rp));
-    const g = ctx.createRadialGradient(nx, ny, 0, nx, ny, R);
-    for (let j = 0; j <= 10; j++) {
-      const f = j / 10, soft = 0.5 * (1 + Math.cos(Math.PI * f)), hard = f <= 0.9 ? 1 : 0;
-      g.addColorStop(f, rgba(col, lerp(hard, soft, k)));
-    }
-    ctx.fillStyle = g;
-    ctx.fillRect(nx - R, ny - R, R * 2, R * 2);
-  }
-
-  // lighting
-  const L = b.light;
-  if (L.intensity > 0) {
-    const dr = L.drift ? 1 : 0;
-    const lx = (L.x / 100 + dr * 0.07 * Math.sin(t * 0.35)) * cw, ly = (L.y / 100 + dr * 0.06 * Math.cos(t * 0.27)) * ch;
-    const R = Math.max(cw, ch) * (L.size / 100) * 0.8, I = L.intensity / 100;
-    const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, R);
-    g.addColorStop(0, rgba(L.color, I)); g.addColorStop(0.45, rgba(L.color, I * 0.4)); g.addColorStop(1, rgba(L.color, 0));
-    ctx.globalCompositeOperation = 'screen';
-    ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
-  }
-  ctx.globalCompositeOperation = 'source-over';
-
-  // vignette
-  if (b.vignette > 0) {
-    const R = Math.hypot(cw, ch) / 2;
-    const g = ctx.createRadialGradient(cw / 2, ch / 2, R * 0.28, cw / 2, ch / 2, R);
-    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${(b.vignette / 100) * 0.85})`);
-    ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
-  }
-  // brightness
-  if (b.brightness !== 0) {
-    ctx.fillStyle = b.brightness < 0 ? `rgba(0,0,0,${-b.brightness / 100 * 0.8})` : `rgba(255,255,255,${b.brightness / 100 * 0.4})`;
-    ctx.fillRect(0, 0, cw, ch);
-  }
-  // film grain
-  if (b.grain > 0) {
-    const kk = s * 2.5, pat = ctx.createPattern(getNoise(), 'repeat');
-    ctx.save();
-    ctx.scale(kk, kk);
-    ctx.globalAlpha = b.grain / 100 * 0.22;
-    ctx.globalCompositeOperation = 'overlay';
-    ctx.fillStyle = pat; ctx.fillRect(0, 0, cw / kk, ch / kk);
-    ctx.restore();
-  }
   ctx.restore();
 }
 
@@ -577,7 +380,11 @@ function drawLogo(ctx, o) {
 }
 
 function renderScene(ctx, s, opts = {}) {
-  drawAnimatedBackground(ctx, Math.round(W * s), Math.round(H * s), s, anim.t, state.bg);
+  // the background is transparent: clear, then draw the layers
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, Math.round(W * s), Math.round(H * s));
+  ctx.restore();
   ctx.save();
   ctx.setTransform(s, 0, 0, s, 0, 0);
   for (const id of state.order) {
@@ -621,10 +428,10 @@ function aabb(b, cx = b.cx, cy = b.cy) {
 /* =====================================================================
    View settings: grid, rulers, snapping (remembered between visits)
    ===================================================================== */
-const VIEW_KEY = 'ku-thumb-view-v2';
+const VIEW_KEY = 'ku-thumb-view-v3';   // bumped in 0.3 so template lines are on for everyone
 const VIEW_DEFAULTS = {
   rulers: true, grid: false, snapGrid: true, smart: true,
-  template: false, center: false, ytZone: false,
+  template: true, center: false, ytZone: false,
   gridMode: 'divisions', cols: 8, rows: 8, cell: 250, margin: 0,
   gridColor: '#ffffff', gridOpacity: 0.35, gridWidth: 1, snapPx: 10
 };
@@ -672,6 +479,186 @@ function buildTemplateLines(st) {
   if (lg) xs.push(O.logo.cx - lg.w * O.logo.scale / 2);
   const ys = [c.cy - c.size / 2, c.cy + c.size / 2, O.albumTitle.y, O.artist.y, O.track.y, O.track.y + O.track.lh * O.track.size];
   templateLines = { xs: [...new Set(xs.map(Math.round))], ys: [...new Set(ys.map(Math.round))] };
+}
+
+/* =====================================================================
+   Keep-in-place rules for text
+   A text with "keep in place" on may not overlap any other layer and may
+   not leave the canvas. Other layers may not be pushed onto such a text either.
+   ===================================================================== */
+const KEEP_GAP = 8;       // minimum clear space between a text and another layer (template px)
+const KEEP_EDGE = 20;     // minimum clear space between a text and the canvas edge
+const keepOn = o => !!o && o.type === 'text' && o.keep !== false;
+
+function rotatePts(pts, cx, cy, rot) {
+  const a = rad(rot), c = Math.cos(a), s = Math.sin(a);
+  return pts.map(([x, y]) => ({ x: cx + (x - cx) * c - (y - cy) * s, y: cy + (x - cx) * s + (y - cy) * c }));
+}
+/* The ink of a text (tighter than its selection box), as a rotated rectangle. */
+function textPoly(o) {
+  const L = layoutText(o);
+  let i0 = L.lines.findIndex(l => l.trim()), i1 = -1;
+  L.lines.forEach((l, i) => { if (l.trim()) i1 = i; });
+  if (i0 < 0) return null;
+  mc.font = fontString(o);
+  const asc = Math.max(mc.measureText(L.lines[i0]).actualBoundingBoxAscent || 0, o.size * 0.3);
+  const desc = Math.max(mc.measureText(L.lines[i1]).actualBoundingBoxDescent || 0, 0);
+  const top = o.y + i0 * o.lh * o.size - asc, bottom = o.y + i1 * o.lh * o.size + desc;
+  return rotatePts([[L.left, top], [L.left + L.w, top], [L.left + L.w, bottom], [L.left, bottom]], L.cx, L.cy, o.rot);
+}
+function polyOf(o) {
+  if (o.type === 'text') return textPoly(o);
+  const b = boxOf(o);
+  return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => toWorld(b, sx * b.w / 2, sy * b.h / 2));
+}
+/* Separating-axis test with a minimum gap. */
+function polysConflict(A, B, gap) {
+  for (const P of [A, B]) {
+    for (let i = 0; i < P.length; i++) {
+      const p = P[i], q = P[(i + 1) % P.length];
+      let ax = -(q.y - p.y), ay = q.x - p.x;
+      const len = Math.hypot(ax, ay) || 1; ax /= len; ay /= len;
+      const proj = poly => { let mn = Infinity, mx = -Infinity; for (const v of poly) { const d = v.x * ax + v.y * ay; mn = Math.min(mn, d); mx = Math.max(mx, d); } return [mn, mx]; };
+      const [a0, a1] = proj(A), [b0, b1] = proj(B);
+      if (a1 + gap <= b0 || b1 + gap <= a0) return false;
+    }
+  }
+  return true;
+}
+/* Is this layer allowed where it currently is? */
+function placementValid(id) {
+  const o = obj(id);
+  if (!o || !o.visible) return true;
+  const A = polyOf(o);
+  if (!A) return true;
+  if (keepOn(o) && A.some(v => v.x < KEEP_EDGE || v.x > W - KEEP_EDGE || v.y < KEEP_EDGE || v.y > H - KEEP_EDGE)) return false;
+  for (const oid of state.order) {
+    if (oid === id) continue;
+    const q = obj(oid);
+    if (!q || !q.visible) continue;
+    if (!keepOn(o) && !keepOn(q)) continue;
+    const B = polyOf(q);
+    if (B && polysConflict(A, B, KEEP_GAP)) return false;
+  }
+  return true;
+}
+/* Apply a change; if it would put the layer somewhere not allowed, undo it.
+   (If the layer was already somewhere not allowed, the change is let through so it can be fixed.) */
+function tryChange(id, fn) {
+  const o = obj(id), before = clone(o), wasOk = placementValid(id);
+  fn(o);
+  if (wasOk && !placementValid(id)) { Object.assign(o, before); return false; }
+  return true;
+}
+/* Size a text as large as the user asked for, shrinking only as far as needed to fit. */
+function fitText(id) {
+  const o = obj(id);
+  if (!o || o.type !== 'text') return;
+  const want = o.want || o.size;
+  o.size = want;
+  if (!keepOn(o) || placementValid(id)) return;
+  let lo = 8, hi = want;
+  o.size = lo;
+  if (!placementValid(id)) { o.size = want; return; }   // the anchor itself is blocked, so shrinking can't help
+  for (let i = 0; i < 18; i++) { const mid = (lo + hi) / 2; o.size = mid; if (placementValid(id)) lo = mid; else hi = mid; }
+  o.size = Math.round(lo * 10) / 10;
+}
+/* Put a text back on a spot where it is allowed to be. */
+function placeText(id) {
+  const o = obj(id), want = o.want || 200;
+  o.align = 'right'; o.rot = 0;
+  for (const [x, y] of [[2187, 560], [2187, 330], [2187, 770], [1500, 240]]) {
+    o.x = x; o.y = y; o.size = want; fitText(id);
+    if (placementValid(id) && o.size >= Math.min(want, 90)) return;
+  }
+}
+function settleText(id) {
+  const o = obj(id);
+  fitText(id);
+  if (placementValid(id)) return;
+  const t = TEMPLATE && JSON.parse(TEMPLATE).objects[id];
+  if (t) { ['x', 'y', 'rot', 'align'].forEach(k => { o[k] = t[k]; }); o.want = t.want; fitText(id); }
+  if (!placementValid(id)) placeText(id);
+}
+function resetTextPlacement(id) {
+  const o = obj(id), t = TEMPLATE && JSON.parse(TEMPLATE).objects[id];
+  if (!t) { placeText(id); return; }
+  ['x', 'y', 'rot', 'align', 'lh'].forEach(k => { o[k] = t[k]; });
+  o.want = t.want;
+  fitText(id);
+}
+
+/* =====================================================================
+   Snapping helpers shared by dragging and by the sliders
+   ===================================================================== */
+function snapCandidates(excludeId) {
+  const xs = [], ys = [];
+  if (view.smart) {
+    xs.push(0, W / 2, W); ys.push(0, H / 2, H);
+    xs.push(...state.guides.v); ys.push(...state.guides.h);
+    for (const id of state.order) {
+      if (id === excludeId) continue;
+      const o = obj(id);
+      if (!o || !o.visible) continue;
+      const a = aabb(boxOf(o));
+      xs.push(a.minx, (a.minx + a.maxx) / 2, a.maxx);
+      ys.push(a.miny, (a.miny + a.maxy) / 2, a.maxy);
+      if (o.type === 'text' && o.rot === 0) { const L = layoutText(o); L.lines.forEach((_, i) => ys.push(o.y + i * o.lh * o.size)); }
+    }
+  }
+  if (view.snapGrid) { const g = gridLines(); xs.push(...g.xs); ys.push(...g.ys); }
+  if (view.template) { xs.push(...templateLines.xs); ys.push(...templateLines.ys); }
+  return { xs, ys };
+}
+function bestSnap(feats, cands, thr) {
+  let best = null;
+  for (const f of feats) for (const c of cands) {
+    const d = c - f;
+    if (Math.abs(d) < thr && (best === null || Math.abs(d) < Math.abs(best))) best = d;
+  }
+  return best;
+}
+const snapThreshold = () => view.snapPx * unit();
+
+/* Position slider: snap the layer's edges, center and baselines. axis is 'x' or 'y'. */
+function snapPos(id, key, v, axis) {
+  const o = obj(id), orig = o[key];
+  o[key] = v;
+  const b = boxOf(o), ab = aabb(b);
+  const feats = axis === 'x' ? [ab.minx, b.cx, ab.maxx] : [ab.miny, b.cy, ab.maxy];
+  if (axis === 'y' && o.type === 'text' && o.rot === 0) textLines(o).forEach((_, i) => feats.push(o.y + i * o.lh * o.size));
+  o[key] = orig;
+  const cand = snapCandidates(id), list = axis === 'x' ? cand.xs : cand.ys;
+  const d = bestSnap(feats, list, snapThreshold());
+  if (d === null) return { value: v, guides: [] };
+  const guides = [];
+  feats.forEach(f => list.forEach(c => { if (Math.abs(c - (f + d)) < 0.6) guides.push({ axis: axis === 'x' ? 'v' : 'h', pos: c }); }));
+  return { value: v + d, guides };
+}
+/* Size slider: snap the edges that move when the size changes. applyFn(value) sets the size. */
+function snapSize(id, v, applyFn, orig) {
+  const o = obj(id), edges = () => { const a = aabb(boxOf(o)); return { x: [a.minx, a.maxx], y: [a.miny, a.maxy] }; };
+  applyFn(v); const e0 = edges();
+  applyFn(v + 1); const e1 = edges();
+  applyFn(orig);
+  const cand = snapCandidates(id), thr = snapThreshold();
+  let best = null;
+  for (const axis of ['x', 'y']) {
+    for (let i = 0; i < 2; i++) {
+      const slope = e1[axis][i] - e0[axis][i];
+      if (Math.abs(slope) < 1e-6) continue;
+      for (const g of (axis === 'x' ? cand.xs : cand.ys)) {
+        const d = g - e0[axis][i];
+        if (Math.abs(d) < thr && (!best || Math.abs(d) < best.abs)) best = { abs: Math.abs(d), dv: d / slope, guide: { axis: axis === 'x' ? 'v' : 'h', pos: g } };
+      }
+    }
+  }
+  return best ? { value: v + best.dv, guides: [best.guide] } : { value: v, guides: [] };
+}
+/* Rotation slider: stick to 15 degree steps. */
+function snapRot(v) {
+  const r = Math.round(v / 15) * 15;
+  return Math.abs(v - r) < 4 ? { value: r, guides: [] } : { value: v, guides: [] };
 }
 
 /* =====================================================================
@@ -843,7 +830,6 @@ function gotoHistory(i) {
   hist.i = i;
   state = JSON.parse(hist.stack[i]);
   if (sel !== 'background' && !state.objects[sel]) sel = 'cover';
-  if (!anim.playing) anim.t = state.bg.time || 0;
   updateHistoryButtons();
   ensureAllFonts().then(requestRender);
   renderLayers(); renderPanel(); requestRender();
@@ -864,7 +850,7 @@ function changed() {
 }
 function refreshAll() { refreshers.forEach(f => f()); }
 
-function slider({ label: lab, min, max, step = 1, digits = 0, get, set }) {
+function slider({ label: lab, min, max, step = 1, digits = 0, get, set, snap }) {
   const reg = UI.reg(), fire = UI.fire;
   const range = h('input', { type: 'range', min, max, step, 'aria-label': lab });
   const num = h('input', { type: 'number', class: 'num', step, 'aria-label': lab + ' value' });
@@ -873,8 +859,13 @@ function slider({ label: lab, min, max, step = 1, digits = 0, get, set }) {
     range.value = v;
     if (document.activeElement !== num) num.value = Number(v).toFixed(digits);
   };
-  range.addEventListener('input', () => { set(parseFloat(range.value)); fire(); });
-  num.addEventListener('input', () => { const v = parseFloat(num.value); if (!isNaN(v)) { set(v); fire(); } });
+  range.addEventListener('input', () => {
+    let v = parseFloat(range.value);
+    if (snap && view.snapGrid) { const r = snap(v); v = r.value; dragGuides = r.guides || []; }   // sliders stick to the grid
+    set(v); fire();
+  });
+  range.addEventListener('change', () => { dragGuides = []; requestRender(); });
+  num.addEventListener('input', () => { const v = parseFloat(num.value); if (!isNaN(v)) { set(v); fire(); } });   // typed numbers are exact, never snapped
   num.addEventListener('blur', refresh);
   reg.push(refresh); refresh();
   return h('div', { class: 'field' }, h('label', {}, lab), h('div', { class: 'slider' }, range, num));
@@ -961,7 +952,7 @@ function renderLayers() {
     ul.append(li);
   });
   const bgLi = h('li', { class: 'layer' + (sel === 'background' ? ' sel' : ''), 'data-id': 'background' },
-    h('span'), h('span', { class: 'name' }, 'Animated background'), h('span'));
+    h('span'), h('span', { class: 'name' }, 'Background (transparent)'), h('span'));
   bgLi.addEventListener('click', () => select('background'));
   ul.append(bgLi);
 }
@@ -981,7 +972,7 @@ function renderPanel() {
   const keep = box.scrollTop;
   refreshers = [];
   box.innerHTML = '';
-  if (sel === 'background') panelBackground(box);
+  if (sel === 'background') panelInfo(box);
   else {
     const o = cur();
     if (o.type === 'cover') panelCover(box, o);
@@ -992,11 +983,14 @@ function renderPanel() {
 }
 
 /* ---------- Shared: position / rotation / opacity ---------- */
+/* Every change goes through tryChange so a text can't be pushed onto another layer or off the canvas,
+   and the position, size and rotation sliders stick to the grid, guides and other layers. */
 function transformGroup(o, { xKey, yKey, xLabel = 'Position X', yLabel = 'Position Y' }) {
+  const id = sel, guard = fn => v => tryChange(id, () => fn(v));
   return group('Position',
-    slider({ label: xLabel, min: -500, max: W + 500, step: 1, get: () => o[xKey], set: v => o[xKey] = v }),
-    slider({ label: yLabel, min: -500, max: H + 500, step: 1, get: () => o[yKey], set: v => o[yKey] = v }),
-    slider({ label: 'Rotation', min: -180, max: 180, step: 1, get: () => o.rot, set: v => o.rot = v }),
+    slider({ label: xLabel, min: -500, max: W + 500, step: 1, get: () => o[xKey], set: guard(v => { o[xKey] = v; }), snap: v => snapPos(id, xKey, v, 'x') }),
+    slider({ label: yLabel, min: -500, max: H + 500, step: 1, get: () => o[yKey], set: guard(v => { o[yKey] = v; }), snap: v => snapPos(id, yKey, v, 'y') }),
+    slider({ label: 'Rotation', min: -180, max: 180, step: 1, get: () => o.rot, set: guard(v => { o.rot = v; }), snap: snapRot }),
     slider({ label: 'Opacity', min: 0, max: 100, step: 1, get: () => Math.round(o.opacity * 100), set: v => o.opacity = clamp(v, 0, 100) / 100 })
   );
 }
@@ -1009,7 +1003,7 @@ function panelCover(box, o) {
         button('Presets', 'image', openPresets, 'primary wide'),
         button('Upload PNG', 'upload', () => $('#coverFile').click(), 'wide')),
       h('p', { class: 'note' }, 'You can also drag an image onto the preview or paste one with Ctrl+V.'),
-      slider({ label: 'Size', min: 300, max: 5000, step: 1, get: () => o.size, set: v => o.size = Math.max(50, v) }),
+      slider({ label: 'Size', min: 300, max: 5000, step: 1, get: () => o.size, set: v => tryChange(sel, () => { o.size = Math.max(50, v); }), snap: v => snapSize(sel, v, x => { o.size = x; }, o.size) }),
       slider({ label: 'Corner round', min: 0, max: 50, step: 0.5, digits: 1, get: () => o.radius * 100, set: v => o.radius = clamp(v, 0, 50) / 100 })
     ),
     transformGroup(o, { xKey: 'cx', yKey: 'cy', xLabel: 'Center X', yLabel: 'Center Y' }),
@@ -1041,7 +1035,7 @@ function panelText(box, o, id) {
   const isCustom = id.startsWith('text');
   const ta = h('textarea', { rows: 3, 'aria-label': 'Text' });
   ta.value = o.text;
-  ta.addEventListener('input', () => { o.text = ta.value; changed(); });
+  ta.addEventListener('input', () => { o.text = ta.value; fitText(id); changed(); });
 
   const fontOpts = allFonts().map(f => [f.name, f.name + (f.note ? ` (${f.note})` : '')]);
   if (!allFonts().some(f => f.name === o.font)) fontOpts.push([o.font, o.font + ' (not loaded)']);
@@ -1051,22 +1045,27 @@ function panelText(box, o, id) {
   box.append(
     group('Text',
       h('div', { class: 'field stack' }, ta),
-      segField({ label: 'Align', stack: true, options: [['left', icon('alignL'), 'Align left'], ['center', icon('alignC'), 'Align center'], ['right', icon('alignR'), 'Align right']], get: () => o.align, set: v => setAlign(o, v) })
+      switchRow('Keep in place', { label: 'Keep this text clear of other layers and inside the canvas', get: () => o.keep !== false, set: v => { o.keep = v; if (v) settleText(id); }, rebuild: true }),
+      h('p', { class: 'note' }, o.keep !== false
+        ? 'Long text shrinks to fit instead of covering the cover, logo or other text. You can still move, rotate and resize it, but it stops at other layers and at the canvas edge.'
+        : 'Free mode: this text can go anywhere, including over other layers.'),
+      o.keep !== false && o.size < o.want - 0.5 ? h('p', { class: 'note' }, `Shrunk to ${Math.round(o.size)} px so it fits. Your chosen size is ${Math.round(o.want)} px.`) : null,
+      segField({ label: 'Align', stack: true, options: [['left', icon('alignL'), 'Align left'], ['center', icon('alignC'), 'Align center'], ['right', icon('alignR'), 'Align right']], get: () => o.align, set: v => { setAlign(o, v); fitText(id); } })
     ),
     group('Font',
       selectField({
         label: 'Typeface', options: fontOpts, rebuild: true, get: () => o.font,
-        set: v => { o.font = v; const ws = fontInfo(v).weights; if (!ws.includes(o.weight)) o.weight = ws.reduce((a, b) => Math.abs(b - o.weight) < Math.abs(a - o.weight) ? b : a); ensureFont(o).then(requestRender); }
+        set: v => { o.font = v; const ws = fontInfo(v).weights; if (!ws.includes(o.weight)) o.weight = ws.reduce((a, b) => Math.abs(b - o.weight) < Math.abs(a - o.weight) ? b : a); fitText(id); ensureFont(o).then(() => { fitText(id); requestRender(); }); }
       }),
-      weightOpts.length > 1 ? selectField({ label: 'Weight', options: weightOpts, get: () => o.weight, set: v => { o.weight = parseInt(v, 10); ensureFont(o).then(requestRender); } }) : null,
+      weightOpts.length > 1 ? selectField({ label: 'Weight', options: weightOpts, get: () => o.weight, set: v => { o.weight = parseInt(v, 10); fitText(id); ensureFont(o).then(() => { fitText(id); requestRender(); }); } }) : null,
       h('div', { class: 'field stack' },
         h('div', { class: 'seg' },
-          toggleButton('<i>Italic</i>', () => o.italic, v => { o.italic = v; ensureFont(o).then(requestRender); }),
-          toggleButton('UPPERCASE', () => o.caps, v => { o.caps = v; }),
+          toggleButton('<i>Italic</i>', () => o.italic, v => { o.italic = v; fitText(id); ensureFont(o).then(() => { fitText(id); requestRender(); }); }),
+          toggleButton('UPPERCASE', () => o.caps, v => { o.caps = v; fitText(id); }),
           button('Use my own font', 'upload', () => $('#fontFile').click(), 'small'))),
-      slider({ label: 'Size', min: 20, max: 900, step: 1, get: () => o.size, set: v => resizeText(o, Math.max(8, v)) }),
-      slider({ label: 'Line height', min: 0.6, max: 2, step: 0.01, digits: 2, get: () => o.lh, set: v => o.lh = v }),
-      slider({ label: 'Letter spacing', min: -100, max: 500, step: 1, get: () => o.ls, set: v => o.ls = v })
+      slider({ label: 'Size', min: 20, max: 900, step: 1, get: () => o.size, set: v => { o.want = Math.max(8, v); fitText(id); }, snap: v => snapSize(id, v, x => { o.size = x; }, o.size) }),
+      slider({ label: 'Line height', min: 0.6, max: 2, step: 0.01, digits: 2, get: () => o.lh, set: v => { o.lh = v; fitText(id); } }),
+      slider({ label: 'Letter spacing', min: -100, max: 500, step: 1, get: () => o.ls, set: v => { o.ls = v; fitText(id); } })
     ),
     group('Color',
       segField({ label: 'Fill', options: [['solid', 'Solid'], ['gradient', 'Gradient']], get: () => o.fill, set: v => o.fill = v, rebuild: true }),
@@ -1092,6 +1091,7 @@ function panelText(box, o, id) {
       ] : [])),
     group('',
       h('div', { class: 'row-btns' },
+        button('Back to original position', 'reset', () => { resetTextPlacement(id); pushHistory(); renderPanel(); requestRender(); }, 'wide'),
         isCustom
           ? button('Delete this text', 'trash', () => deleteText(id), 'danger wide')
           : button('Reset this text', 'reset', () => resetObject(id), 'wide')))
@@ -1103,18 +1103,12 @@ function setAlign(o, v) {
   o.align = v;
   o.x = v === 'left' ? L.left : v === 'center' ? L.left + L.w / 2 : L.left + L.w;
 }
-function resizeText(o, size) {
-  const b0 = layoutText(o);
-  o.size = size;
-  const b1 = layoutText(o);
-  o.x += b0.cx - b1.cx; o.y += b0.cy - b1.cy;
-}
 
 /* ---------- Logo panel ---------- */
 function panelLogo(box, o) {
   box.append(
     group('Channel logo',
-      slider({ label: 'Size', min: 5, max: 400, step: 1, get: () => Math.round(o.scale * 100), set: v => o.scale = Math.max(0.02, v / 100) }),
+      slider({ label: 'Size', min: 5, max: 400, step: 1, get: () => Math.round(o.scale * 100), set: v => tryChange(sel, () => { o.scale = Math.max(0.02, v / 100); }), snap: v => snapSize(sel, v, x => { o.scale = x / 100; }, o.scale * 100) }),
       switchRow('Recolor', { label: 'Recolor logo', get: () => o.tintOn, set: v => o.tintOn = v }),
       ...(o.tintOn ? [colorField({ label: 'Color', get: () => o.tint, set: v => o.tint = v })] : [])
     ),
@@ -1123,94 +1117,15 @@ function panelLogo(box, o) {
   );
 }
 
-/* ---------- Animated background panel ---------- */
-function setPlaying(v) {
-  anim.playing = v;
-  if (!v) { state.bg.time = anim.t; pushHistory(); }
-  refreshAll();
-}
-function applyPaletteTo(b, pal) { b.colors = pal.colors.slice(); b.base = pal.base; }
-function applyPalette(pal) { applyPaletteTo(state.bg, pal); }
-function matchCover(silent) {
-  const reg = images.get(obj('cover').imgId);
-  if (!reg) { if (!silent) toast('Choose an album cover first, then match its colors.', true); return false; }
-  applyPalette(extractPalette(reg, 4));
-  return true;
-}
-function randomPalette() {
-  const h0 = Math.random(), sat = 0.6 + Math.random() * 0.3;
-  return {
-    colors: [hslHex(h0, sat, 0.55), hslHex(h0 + 0.08, sat, 0.62), hslHex(h0 + 0.5 + Math.random() * 0.1, sat * 0.8, 0.5), hslHex(h0 + 0.62, sat * 0.9, 0.45)],
-    base: hslHex(h0, 0.4, 0.07)
-  };
-}
-
-function panelBackground(box) {
-  const b = state.bg;
-  const swatches = h('div', { class: 'swatches' });
-  b.colors.forEach((c, i) => {
-    const input = h('input', { type: 'color', 'aria-label': 'Gradient color ' + (i + 1) });
-    input.value = c;
-    const hex = h('span', { class: 'hex' }, c);
-    input.addEventListener('input', () => { b.colors[i] = input.value; hex.textContent = input.value; b.autoMatch = false; changed(); });
-    const rm = h('button', { type: 'button', class: 'mini-btn', title: 'Remove this color', 'aria-label': 'Remove color ' + (i + 1), html: icon('close') });
-    rm.disabled = b.colors.length <= 2;
-    rm.addEventListener('click', () => { b.colors.splice(i, 1); b.autoMatch = false; pushHistory(); renderPanel(); requestRender(); });
-    swatches.append(h('div', { class: 'swatch-row' }, input, hex, rm));
-  });
-  const addBtn = button('Add color', 'plus', () => {
-    const last = b.colors[b.colors.length - 1] || '#888888', [hh, s, l] = rgbToHsl(...hexToRgb(last));
-    b.colors.push(hslHex(hh + 0.12, s, l)); b.autoMatch = false; pushHistory(); renderPanel(); requestRender();
-  }, 'small');
-  addBtn.disabled = b.colors.length >= 8;
-
-  const playBtn = h('button', { type: 'button', class: 'btn wide' });
-  const updPlay = () => { playBtn.innerHTML = label(anim.playing ? 'pause' : 'play', anim.playing ? 'Pause animation' : 'Play animation'); };
-  playBtn.addEventListener('click', () => setPlaying(!anim.playing));
-  refreshers.push(updPlay); updPlay();
-
+/* ---------- Background info (the background is always transparent) ---------- */
+function panelInfo(box) {
   box.append(
-    group('Animated gradient',
-      h('p', { class: 'note' }, 'Soft colored shapes drift behind your thumbnail. Pause on the frame you like, then download.'),
-      h('div', { class: 'row-btns' }, playBtn),
-      slider({ label: 'Frame', min: 0, max: 600, step: 0.1, digits: 1, get: () => anim.t, set: v => { anim.t = Math.max(0, v); state.bg.time = anim.t; } })
-    ),
-    group('Colors',
-      h('div', { class: 'row-btns' },
-        button('Match album cover', 'drop', () => { if (matchCover()) { pushHistory(); renderPanel(); requestRender(); } }, 'primary wide')),
-      switchRow('Auto-match', { label: 'Match the cover automatically when it changes', get: () => b.autoMatch, set: v => { b.autoMatch = v; if (v) matchCover(true); }, rebuild: true }),
-      swatches,
-      h('div', { class: 'row-btns' }, addBtn,
-        button('Random colors', 'shuffle', () => { applyPalette(randomPalette()); b.autoMatch = false; pushHistory(); renderPanel(); requestRender(); }, 'small')),
-      colorField({ label: 'Backdrop', get: () => b.base, set: v => { b.base = v; b.autoMatch = false; } }),
-      slider({ label: 'Saturation', min: 0, max: 200, step: 1, get: () => b.saturation, set: v => b.saturation = Math.max(0, v) })
-    ),
-    group('Motion',
-      slider({ label: 'Speed', min: 0, max: 300, step: 1, get: () => b.speed, set: v => b.speed = Math.max(0, v) }),
-      slider({ label: 'Drift distance', min: 0, max: 200, step: 1, get: () => b.move, set: v => b.move = Math.max(0, v) }),
-      button('Shuffle layout', 'shuffle', () => { b.seed = 1 + Math.floor(Math.random() * 9998); changed(); }, 'small')
-    ),
-    group('Shapes and blur',
-      slider({ label: 'Blur intensity', min: 0, max: 100, step: 1, get: () => b.softness, set: v => b.softness = clamp(v, 0, 100) }),
-      slider({ label: 'Shape size', min: 40, max: 220, step: 1, get: () => b.size, set: v => b.size = Math.max(10, v) }),
-      slider({ label: 'Number of shapes', min: 2, max: 8, step: 1, get: () => b.blobs, set: v => b.blobs = clamp(Math.round(v), 1, 8) }),
-      selectField({ label: 'Blending', options: [['normal', 'Normal'], ['screen', 'Screen (brighter)'], ['glow', 'Glow (strongest)']], get: () => b.blend, set: v => b.blend = v })
-    ),
-    group('Lighting',
-      slider({ label: 'Light strength', min: 0, max: 100, step: 1, get: () => b.light.intensity, set: v => b.light.intensity = clamp(v, 0, 100) }),
-      slider({ label: 'Light size', min: 10, max: 150, step: 1, get: () => b.light.size, set: v => b.light.size = Math.max(5, v) }),
-      slider({ label: 'Light left/right', min: 0, max: 100, step: 1, get: () => b.light.x, set: v => b.light.x = v }),
-      slider({ label: 'Light up/down', min: 0, max: 100, step: 1, get: () => b.light.y, set: v => b.light.y = v }),
-      colorField({ label: 'Light color', get: () => b.light.color, set: v => b.light.color = v }),
-      switchRow('Light drifts', { label: 'Let the light drift', get: () => b.light.drift, set: v => b.light.drift = v, rebuild: false }),
-      slider({ label: 'Brightness', min: -100, max: 100, step: 1, get: () => b.brightness, set: v => b.brightness = clamp(v, -100, 100) }),
-      slider({ label: 'Dark edges', min: 0, max: 100, step: 1, get: () => b.vignette, set: v => b.vignette = clamp(v, 0, 100) }),
-      slider({ label: 'Film grain', min: 0, max: 100, step: 1, get: () => b.grain, set: v => b.grain = clamp(v, 0, 100) })
-    ),
-    group('', h('div', { class: 'row-btns' }, button('Reset background', 'reset', () => {
-      state.bg = defaultBackground(); if (state.bg.autoMatch) matchCover(true);
-      anim.t = 0; pushHistory(); renderPanel(); requestRender();
-    }, 'wide')))
+    group('Transparent background',
+      h('p', { class: 'note' }, 'The thumbnail has no background of its own. Your download is a PNG with a transparent background, so you can place it over any video frame or design.'),
+      h('p', { class: 'note' }, 'The checkerboard in the preview only stands for transparency. It is not part of the file.')),
+    group('Placing things correctly',
+      h('p', { class: 'note' }, 'The amber dashed template lines show where the PSD template puts the text edge, text baselines, cover edges and logo. Layers snap to them, so dragging close to a line lines everything up.'),
+      h('p', { class: 'note' }, 'Texts stay clear of other layers and inside the canvas. Use Back to original position in a text layer if you ever want to restore its template spot.'))
   );
 }
 
@@ -1224,8 +1139,9 @@ function resetObject(id) {
 }
 function addText() {
   const id = 'text' + state.nextText++;
-  state.objects[id] = textObj({ name: 'Extra text ' + (state.nextText - 1), text: 'New text', size: 220, x: 2500, y: 1400, align: 'center' });
+  state.objects[id] = textObj({ name: 'Extra text ' + (state.nextText - 1), text: 'New text', size: 200, x: 2187, y: 560, align: 'right' });
   state.order.push(id);
+  placeText(id);                         // find a free spot that doesn't touch any other layer
   pushHistory(); select(id);
 }
 function deleteText(id) {
@@ -1355,33 +1271,6 @@ function guideAt(p) {
 }
 
 /* ---------- Snapping ---------- */
-function snapCandidates(excludeId) {
-  const xs = [], ys = [];
-  if (view.smart) {
-    xs.push(0, W / 2, W); ys.push(0, H / 2, H);
-    xs.push(...state.guides.v); ys.push(...state.guides.h);
-    for (const id of state.order) {
-      if (id === excludeId) continue;
-      const o = obj(id);
-      if (!o || !o.visible) continue;
-      const a = aabb(boxOf(o));
-      xs.push(a.minx, (a.minx + a.maxx) / 2, a.maxx);
-      ys.push(a.miny, (a.miny + a.maxy) / 2, a.maxy);
-      if (o.type === 'text' && o.rot === 0) { const L = layoutText(o); L.lines.forEach((_, i) => ys.push(o.y + i * o.lh * o.size)); }
-    }
-  }
-  if (view.snapGrid) { const g = gridLines(); xs.push(...g.xs); ys.push(...g.ys); }
-  if (view.template) { xs.push(...templateLines.xs); ys.push(...templateLines.ys); }
-  return { xs, ys };
-}
-function bestSnap(feats, cands, thr) {
-  let best = null;
-  for (const f of feats) for (const c of cands) {
-    const d = c - f;
-    if (Math.abs(d) < thr && (best === null || Math.abs(d) < Math.abs(best))) best = d;
-  }
-  return best;
-}
 function snapMove(o, start, b0, tx, ty, thr) {
   const cand = snapCandidates(sel);
   const ab = aabb(b0, tx, ty);
@@ -1427,7 +1316,7 @@ stage.addEventListener('pointerdown', e => {
   }
   const o = cur();
   stage.setPointerCapture(e.pointerId);
-  drag = { kind: hd.kind, sx: hd.sx, sy: hd.sy, id: sel, p0: p, start: clone(o), box0: boxOf(o) };
+  drag = { kind: hd.kind, sx: hd.sx, sy: hd.sy, id: sel, p0: p, start: clone(o), box0: boxOf(o), enforce: placementValid(sel), okK: 1 };
   e.preventDefault();
 });
 
@@ -1458,30 +1347,74 @@ stage.addEventListener('pointermove', e => {
   if (drag.kind === 'move') {
     let tx = b0.cx + (p.x - drag.p0.x), ty = b0.cy + (p.y - drag.p0.y);
     if (!e.altKey) {
-      const sn = snapMove(o, st, b0, tx, ty, view.snapPx * u);
+      const sn = snapMove(o, st, b0, tx, ty, snapThreshold());
       tx += sn.dx; ty += sn.dy; dragGuides = sn.guides;
     }
     const dx = tx - b0.cx, dy = ty - b0.cy;
-    if (o.type === 'text') { o.x = st.x + dx; o.y = st.y + dy; } else { o.cx = st.cx + dx; o.cy = st.cy + dy; }
-  } else if (drag.kind === 'scale') {
-    const r0 = Math.hypot(drag.p0.x - b0.cx, drag.p0.y - b0.cy) || 1;
-    const k = clamp(Math.hypot(p.x - b0.cx, p.y - b0.cy) / r0, 0.05, 25);
-    if (o.type === 'cover') o.size = clamp(st.size * k, 80, 20000);
-    else if (o.type === 'logo') o.scale = clamp(st.scale * k, 0.02, 20);
+    const kx = o.type === 'text' ? 'x' : 'cx', ky = o.type === 'text' ? 'y' : 'cy';
+    if (!drag.enforce) { o[kx] = st[kx] + dx; o[ky] = st[ky] + dy; }
     else {
-      o.x = st.x; o.y = st.y;
-      o.size = clamp(st.size * k, 8, 4000);
-      const b1 = layoutText(o);
-      o.x += b0.cx - b1.cx; o.y += b0.cy - b1.cy;
-      o.stroke.width = st.stroke.width * k;
-      o.shadow.blur = st.shadow.blur * k; o.shadow.x = st.shadow.x * k; o.shadow.y = st.shadow.y * k;
+      // slide along obstacles: try each axis on its own and keep whichever is allowed
+      const px = o[kx], py = o[ky];
+      o[kx] = st[kx] + dx; if (!placementValid(drag.id)) o[kx] = px;
+      o[ky] = st[ky] + dy; if (!placementValid(drag.id)) o[ky] = py;
+    }
+  } else if (drag.kind === 'scale') {
+    // Resize from the dot you grabbed: the opposite corner stays where it is.
+    const sx = drag.sx, sy = drag.sy;
+    const aL = { x: -sx * b0.w / 2, y: -sy * b0.h / 2 }, cL = { x: sx * b0.w / 2, y: sy * b0.h / 2 };   // anchor and dragged corner, in the box's own space
+    const dvx = cL.x - aL.x, dvy = cL.y - aL.y, len2 = dvx * dvx + dvy * dvy || 1;
+    const pl = toLocal(b0, p);
+    let k = clamp(((pl.x - aL.x) * dvx + (pl.y - aL.y) * dvy) / len2, 0.05, 25);
+    if (!e.altKey && b0.rot === 0) {
+      // snap the dragged corner to the grid, guides, template lines and other layers
+      const A = toWorld(b0, aL.x, aL.y), C = toWorld(b0, cL.x, cL.y), cand = snapCandidates(drag.id), thr = snapThreshold();
+      let best = null;
+      const consider = (axis, lines) => {
+        const a0 = axis === 'x' ? A.x : A.y, c0 = axis === 'x' ? C.x : C.y, span = c0 - a0;
+        if (Math.abs(span) < 1) return;
+        const cur2 = a0 + span * k;
+        for (const g of lines) {
+          const d = Math.abs(g - cur2), kk = (g - a0) / span;
+          if (d < thr && kk > 0.05 && kk < 25 && (!best || d < best.d)) best = { d, k: kk, guide: { axis: axis === 'x' ? 'v' : 'h', pos: g } };
+        }
+      };
+      consider('x', cand.xs); consider('y', cand.ys);
+      if (best) { k = best.k; dragGuides = [best.guide]; }
+    }
+    const applyK = kk => {
+      const cn = { x: aL.x + (cL.x - aL.x) * kk / 2, y: aL.y + (cL.y - aL.y) * kk / 2 };   // new center, still in the old box's space
+      const cw = toWorld(b0, cn.x, cn.y);
+      if (o.type === 'cover') { o.size = clamp(st.size * kk, 80, 20000); o.cx = cw.x; o.cy = cw.y; }
+      else if (o.type === 'logo') { o.scale = clamp(st.scale * kk, 0.02, 20); o.cx = cw.x; o.cy = cw.y; }
+      else {
+        o.x = st.x; o.y = st.y;
+        o.size = clamp(st.size * kk, 8, 4000);
+        const b1 = layoutText(o);
+        o.x += cw.x - b1.cx; o.y += cw.y - b1.cy;
+        o.stroke.width = st.stroke.width * kk;
+        o.shadow.blur = st.shadow.blur * kk; o.shadow.x = st.shadow.x * kk; o.shadow.y = st.shadow.y * kk;
+      }
+    };
+    applyK(k);
+    if (drag.enforce) {
+      if (placementValid(drag.id)) drag.okK = k;
+      else {
+        // stop growing at the first obstacle
+        let lo = drag.okK, hi = k;
+        if (hi > lo) { for (let i = 0; i < 16; i++) { const mid = (lo + hi) / 2; applyK(mid); if (placementValid(drag.id)) lo = mid; else hi = mid; } }
+        applyK(lo); drag.okK = lo;
+      }
     }
   } else if (drag.kind === 'rotate') {
     let a = deg(Math.atan2(p.y - b0.cy, p.x - b0.cx)) + 90;
     a = ((a + 540) % 360) - 180;
     if (e.shiftKey) a = Math.round(a / 15) * 15;
+    else if (view.snapGrid && !e.altKey) { const r = Math.round(a / 15) * 15; if (Math.abs(a - r) < 4) a = r; }
     else for (const t of [0, 90, -90, 180, -180]) if (Math.abs(a - t) < 3) a = t;
+    const prev = o.rot;
     o.rot = Math.round(a * 10) / 10;
+    if (drag.enforce && !placementValid(drag.id)) o.rot = prev;      // can't rotate into another layer or off the canvas
   }
   refreshAll();
   requestRender();
@@ -1493,6 +1426,7 @@ function endDrag() {
     const arr = state.guides[drag.axis], v = arr[drag.i], lim = drag.axis === 'v' ? W : H;
     if (v <= 0 || v >= lim) arr.splice(drag.i, 1);     // dragged off the canvas: remove it
   }
+  if (drag.kind === 'scale') { const o = obj(drag.id); if (o && o.type === 'text') o.want = o.size; }
   drag = null; dragGuides = [];
   pushHistory(); requestRender();
 }
@@ -1547,7 +1481,7 @@ document.addEventListener('keydown', e => {
   const mv = { ArrowLeft: [-stepX, 0], ArrowRight: [stepX, 0], ArrowUp: [0, -stepY], ArrowDown: [0, stepY] }[e.key];
   if (mv && document.activeElement.type !== 'range') {
     e.preventDefault();
-    if (o.type === 'text') { o.x += mv[0]; o.y += mv[1]; } else { o.cx += mv[0]; o.cy += mv[1]; }
+    tryChange(sel, () => { if (o.type === 'text') { o.x += mv[0]; o.y += mv[1]; } else { o.cx += mv[0]; o.cy += mv[1]; } });
     changed();
   } else if ((e.key === 'Delete' || e.key === 'Backspace') && sel.startsWith('text')) {
     e.preventDefault(); deleteText(sel);
@@ -1562,7 +1496,6 @@ async function setCoverFromSrc(src, id) {
     const rid = await registerImage(src, id);
     const o = obj('cover');
     o.imgId = rid; o.zoom = 1; o.panX = 0; o.panY = 0;
-    if (state.bg.autoMatch) matchCover(true);
     pushHistory(); requestRender();
     if (sel === 'background') renderPanel(); else refreshAll();
     return true;
@@ -1571,7 +1504,7 @@ async function setCoverFromSrc(src, id) {
 async function handleCoverFile(file) {
   if (!file || !/^image\//.test(file.type)) { toast('Please choose an image file (PNG works best).', true); return; }
   const src = await readFileAsDataURL(file);
-  if (await setCoverFromSrc(src)) { select('cover'); toast(state.bg.autoMatch ? 'Album cover updated. The background now matches its colors.' : 'Album cover updated.'); }
+  if (await setCoverFromSrc(src)) { select('cover'); toast('Album cover updated.'); }
 }
 $('#coverFile').addEventListener('change', e => { handleCoverFile(e.target.files[0]); e.target.value = ''; closePresets(); });
 $('#fontFile').addEventListener('change', async e => {
@@ -1642,7 +1575,7 @@ function download(blob, name) {
 const slug = s => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 
 async function exportImage() {
-  const w = parseInt($('#expSize').value, 10), fmt = $('#expFmt').value;
+  const w = parseInt($('#expSize').value, 10);
   const btn = $('#downloadBtn');
   btn.disabled = true; toast('Rendering your thumbnail...');
   exporting = true;
@@ -1650,20 +1583,11 @@ async function exportImage() {
     await ensureAllFonts();
     const s = w / W, c = document.createElement('canvas');
     c.width = w; c.height = Math.round(H * s);
-    renderScene(c.getContext('2d'), s, {});          // the animated background is captured at its current frame
-    const base = `KanyevaUnreleasder-${slug(obj('track').text) || 'thumbnail'}-${c.width}x${c.height}`;
-    if (fmt === 'jpg') {
-      let q = 0.95, blob = await canvasToBlob(c, 'image/jpeg', q);
-      while (blob && blob.size > YT_LIMIT && w <= 1920 && q > 0.5) { q -= 0.05; blob = await canvasToBlob(c, 'image/jpeg', q); }
-      if (!blob) throw new Error('blocked');
-      download(blob, base + '.jpg');
-      toast(`Saved a ${(blob.size / 1048576).toFixed(2)} MB JPG.` + (blob.size > YT_LIMIT ? ' YouTube allows up to 2 MB, so pick a smaller size.' : ''));
-    } else {
-      const blob = await canvasToBlob(c, 'image/png');
-      if (!blob) throw new Error('blocked');
-      download(blob, base + '.png');
-      toast(`Saved a ${(blob.size / 1048576).toFixed(2)} MB PNG.` + (blob.size > YT_LIMIT && w <= 1920 ? ' It is over YouTube\'s 2 MB limit, so try JPG.' : ''));
-    }
+    renderScene(c.getContext('2d'), s, {});          // transparent background, so the PNG keeps its alpha channel
+    const blob = await canvasToBlob(c, 'image/png');
+    if (!blob) throw new Error('blocked');
+    download(blob, `KanyevaUnreleasder-${slug(obj('track').text) || 'thumbnail'}-${c.width}x${c.height}.png`);
+    toast(`Saved a ${(blob.size / 1048576).toFixed(2)} MB transparent PNG.` + (blob.size > YT_LIMIT ? ' If you upload it to YouTube directly, note that thumbnails must be under 2 MB.' : ''));
   } catch (err) {
     const local = location.protocol === 'file:';
     toast(local
@@ -1675,13 +1599,12 @@ async function exportImage() {
 }
 
 function saveProject() {
-  state.bg.time = anim.t;
   const used = new Set();
   const addId = id => { if (id && images.has(id) && id !== 'logo') used.add(id); };
   addId(obj('cover').imgId);
   const imgs = {};
   used.forEach(id => { imgs[id] = images.get(id).src; });
-  const blob = new Blob([JSON.stringify({ app: 'ku-thumbnail-generator', version: 2, state, images: imgs })], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ app: 'ku-thumbnail-generator', version: 3, state, images: imgs })], { type: 'application/json' });
   download(blob, `KanyevaUnreleasder-project-${slug(obj('track').text) || 'thumbnail'}.json`);
   toast('Project saved. Open it later with "Open project".');
 }
@@ -1691,13 +1614,11 @@ async function openProject(file) {
     if (data.app !== 'ku-thumbnail-generator') throw new Error('bad');
     for (const [id, src] of Object.entries(data.images || {})) await registerImage(src, id);
     const st = data.state;
-    // projects saved by beta 0.1 have the old background settings
-    if (!st.bg || !Array.isArray(st.bg.colors)) st.bg = defaultBackground();
-    st.bg = Object.assign(defaultBackground(), st.bg, { light: Object.assign(defaultBackground().light, st.bg.light || {}) });
+    delete st.bg;                                   // older projects had a background; it is transparent now
     if (!st.guides) st.guides = { v: [], h: [] };
+    Object.values(st.objects).forEach(o => { if (o.type === 'text') { if (o.want == null) o.want = o.size; if (o.keep == null) o.keep = true; } });
     state = st;
     sel = 'cover';
-    anim.t = state.bg.time || 0;
     await ensureAllFonts();
     pushHistory(); renderLayers(); renderPanel(); requestRender();
     toast('Project opened.');
@@ -1730,7 +1651,7 @@ document.addEventListener('pointerdown', e => {
 });
 $('#resetBtn').addEventListener('click', () => {
   if (!confirm('Reset everything back to the template? You can still undo this.')) return;
-  state = JSON.parse(TEMPLATE); sel = 'cover'; anim.t = 0;
+  state = JSON.parse(TEMPLATE); sel = 'cover';
   pushHistory(); renderLayers(); renderPanel(); requestRender();
 });
 $('#addTextBtn').addEventListener('click', addText);
@@ -1743,20 +1664,6 @@ window.addEventListener('resize', () => { rulerKey = ''; requestRender(); });
 /* =====================================================================
    Start
    ===================================================================== */
-let lastTs = 0, lastUiRefresh = 0;
-function tick(ts) {
-  const dt = Math.min(0.1, (ts - lastTs) / 1000);
-  lastTs = ts;
-  if (state && anim.playing && !exporting && state.bg.speed > 0) {
-    anim.t += dt * state.bg.speed / 100;
-    if (anim.t > 600) anim.t = 0;
-    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
-    renderPreview();
-    if (sel === 'background' && ts - lastUiRefresh > 250) { lastUiRefresh = ts; refreshAll(); }
-  }
-  requestAnimationFrame(tick);
-}
-
 (async function init() {
   buildPresetGrid();
   const fontOk = await mainFontAvailable();
@@ -1768,8 +1675,6 @@ function tick(ts) {
   if (!images.has(st.objects.cover.imgId)) st.objects.cover.imgId = null;
   await Promise.all(Object.values(st.objects).filter(o => o.type === 'text').map(ensureFont));
   calibrateState(st);
-  const reg = images.get(st.objects.cover.imgId);
-  if (reg) applyPaletteTo(st.bg, extractPalette(reg, 4));
   buildTemplateLines(st);
   TEMPLATE = JSON.stringify(st);
 
@@ -1779,9 +1684,8 @@ function tick(ts) {
   renderLayers(); renderPanel(); renderPreview();
   requestRender();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { rulerKey = ''; requestRender(); });
-  requestAnimationFrame(tick);
   if (!fontOk) toast('Helvetica Rounded Bold could not be loaded. Check that the file is at assets/Helvetica Rounded Bold/Helvetica Rounded Bold.otf (the name is case sensitive).', true);
-  window.__ku = { get state() { return state; }, anim, view, render: renderScene, W, H, ensureAllFonts, exportImage, gridLines, templateLines: () => templateLines };  // handy for debugging
+  window.__ku = { get state() { return state; }, view, placementValid, fitText, render: renderScene, W, H, ensureAllFonts, exportImage, gridLines, templateLines: () => templateLines };  // handy for debugging
 })();
 
 })();
