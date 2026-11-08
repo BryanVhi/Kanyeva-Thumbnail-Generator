@@ -27,7 +27,7 @@
   </div>
   <h1>Welcome to the KanyevaUnreleasder Thumbnail Generator</h1>
   <p class="lede">Made only for the KanyevaUnreleasder channel. Pick an album cover, type your titles, then drag, resize and recolor everything until the thumbnail is right.</p>
-  <p class="betanote"><strong>Beta version 0.2.</strong> Updates are on the way, so expect new features and the occasional rough edge.</p>
+  <p class="betanote"><strong>Beta version 0.3.</strong> Updates are on the way, so expect new features and the occasional rough edge.</p>
 </header>
 
 <main class="app">
@@ -57,7 +57,7 @@
         <div class="dropveil" id="dropVeil">Drop an image to use it as the album cover</div>
       </div>
     </div>
-    <p class="stagehint">Drag to move. Corner handles resize. The round handle rotates. Arrow keys nudge (Shift for a grid step). Hold Alt while dragging to move without snapping.</p>
+    <p class="stagehint">Drag to move. Drag a corner dot to resize from that dot. The round handle rotates. Arrow keys nudge (Shift for a grid step). Hold Alt to move or resize without snapping. The checkerboard stands for the transparent background.</p>
 
     <div class="exportbar">
       <div class="export-opts">
@@ -69,12 +69,7 @@
             <option value="1280" selected>1280 × 720 (YouTube)</option>
           </select>
         </label>
-        <label class="mini">Format
-          <select id="expFmt">
-            <option value="png" selected>PNG (best quality)</option>
-            <option value="jpg">JPG (smaller file)</option>
-          </select>
-        </label>
+        <p class="exportnote">Downloads as a PNG with a transparent background.</p>
       </div>
       <div class="export-actions">
         <button class="btn" id="saveProject" title="Save your work to a file you can open later"></button>
@@ -94,7 +89,7 @@
   </aside>
 </main>
 
-<footer class="foot">KanyevaUnreleasder Thumbnail Generator, beta 0.2. Everything runs in your browser, nothing is uploaded.</footer>
+<footer class="foot">KanyevaUnreleasder Thumbnail Generator, beta 0.3. Everything runs in your browser, nothing is uploaded.</footer>
 
 <!-- Preset gallery -->
 <div class="modal" id="presetModal" hidden>
