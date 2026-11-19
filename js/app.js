@@ -1,4 +1,4 @@
-/* KanyevaUnreleasder Thumbnail Generator, beta 0.3
+/* KanyevaUnreleasder Thumbnail Generator, beta 0.4
    Everything runs in the browser. The template geometry comes from
    Kanyeva_Thumbnail_Template_V47.psd (5000 x 2812). */
 (() => {
@@ -162,7 +162,7 @@ function textObj(extra) {
    shadow = black 45%, shifted right/down, 99% of the cover size
    texts  = right-aligned bold, white. Size and position are fitted to the
             PSD's ink bounds once the font has loaded (see fitTemplateText)
-   logo   = 1532 x 257 white logo at bottom left */
+   logo   = white logo at bottom left (new logo_v2, placed where the supplied file has it) */
 function makeDefaultState() {
   return {
     nextText: 1,
@@ -179,7 +179,7 @@ function makeDefaultState() {
       albumTitle: textObj({ name: 'Album title', text: 'Album Title Here', size: 160, x: 2168, y: 2048 }),
       artist: textObj({ name: 'Artist name', text: 'Artist Name Here', size: 185, x: 2168, y: 1833 }),
       track: textObj({ name: 'Track title', text: 'Track Title\nHere', size: 422, x: 2201, y: 1168 }),
-      logo: { type: 'logo', name: 'Channel logo', visible: true, cx: 827, cy: 2640, scale: 1, rot: 0, opacity: 1, tintOn: false, tint: '#ffffff' }
+      logo: { type: 'logo', name: 'Channel logo', visible: true, cx: 646.5, cy: 2651, scale: 1, rot: 0, opacity: 1, tintOn: false, tint: '#ffffff' }
     }
   };
 }
@@ -757,14 +757,14 @@ function paintRuler(c, axis, bb) {
   ctx.setTransform(d, 0, 0, d, 0, 0);
   const hor = axis === 'h', len = hor ? r.width : r.height, thick = hor ? r.height : r.width;
   const total = hor ? W : H, u = total / len;
-  ctx.fillStyle = '#1c1f27'; ctx.fillRect(0, 0, r.width, r.height);
+  ctx.fillStyle = '#2b1243'; ctx.fillRect(0, 0, r.width, r.height);
   if (bb) {                                     // extent of the selected layer
     const a = hor ? bb.minx : bb.miny, b2 = hor ? bb.maxx : bb.maxy;
     ctx.fillStyle = 'rgba(46,168,255,.30)';
     if (hor) ctx.fillRect(a / u, 0, (b2 - a) / u, thick); else ctx.fillRect(0, a / u, thick, (b2 - a) / u);
   }
   const step = [10, 20, 25, 50, 100, 200, 250, 500, 1000].find(s => s / u >= 70) || 1000, minor = step / 5;
-  ctx.strokeStyle = '#6b7388'; ctx.lineWidth = 1; ctx.beginPath();
+  ctx.strokeStyle = '#9a7cc0'; ctx.lineWidth = 1; ctx.beginPath();
   for (let v = 0; v <= total + 0.1; v += minor) {
     const pos = Math.round(v / u) + 0.5;
     const major = Math.abs(v / step - Math.round(v / step)) < 1e-6;
@@ -773,7 +773,7 @@ function paintRuler(c, axis, bb) {
     if (hor) { ctx.moveTo(pos, thick); ctx.lineTo(pos, thick - tl); } else { ctx.moveTo(thick, pos); ctx.lineTo(thick - tl, pos); }
   }
   ctx.stroke();
-  ctx.fillStyle = '#98a1b5'; ctx.font = '10px "DM Sans", Arial, sans-serif'; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  ctx.fillStyle = '#d9c6f0'; ctx.font = '10px "DM Sans", Arial, sans-serif'; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
   for (let v = 0; v <= total + 0.1; v += step) {
     const pos = v / u;
     if (hor) ctx.fillText(String(Math.round(v)), pos + 3, 2);
@@ -1604,7 +1604,7 @@ function saveProject() {
   addId(obj('cover').imgId);
   const imgs = {};
   used.forEach(id => { imgs[id] = images.get(id).src; });
-  const blob = new Blob([JSON.stringify({ app: 'ku-thumbnail-generator', version: 3, state, images: imgs })], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ app: 'ku-thumbnail-generator', version: 4, state, images: imgs })], { type: 'application/json' });
   download(blob, `KanyevaUnreleasder-project-${slug(obj('track').text) || 'thumbnail'}.json`);
   toast('Project saved. Open it later with "Open project".');
 }
@@ -1615,6 +1615,8 @@ async function openProject(file) {
     for (const [id, src] of Object.entries(data.images || {})) await registerImage(src, id);
     const st = data.state;
     delete st.bg;                                   // older projects had a background; it is transparent now
+    const lg = st.objects.logo;                     // projects from before the new logo: move it to the new template spot
+    if (lg && lg.cx === 827 && lg.cy === 2640 && lg.scale === 1) { lg.cx = 646.5; lg.cy = 2651; }
     if (!st.guides) st.guides = { v: [], h: [] };
     Object.values(st.objects).forEach(o => { if (o.type === 'text') { if (o.want == null) o.want = o.size; if (o.keep == null) o.keep = true; } });
     state = st;
