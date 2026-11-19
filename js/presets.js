@@ -12,5 +12,5 @@
 */
 window.KU_PRESETS = [
   { name: 'Template sample', src: 'assets/presets/template.png' },
-  { name: 'My Beautiful Dark Twisted Fantasy [V1]', src: 'assets/presets/MBDTF_v1.png' }
+  { name: 'MBDTF [V1]', src: 'assets/presets/MBDTF_v1.png' }
 ];
