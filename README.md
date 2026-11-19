@@ -1,9 +1,16 @@
-# KanyevaUnreleasder Thumbnail Generator (beta 0.3)
+# KanyevaUnreleasder Thumbnail Generator (beta 0.4)
 
 A browser-based thumbnail maker built from the `Kanyeva_Thumbnail_Template_V47.psd` template.
 It is made only for the **KanyevaUnreleasder** channel. Nothing is uploaded anywhere; everything runs in the visitor's browser.
 
-## What's new in 0.3
+## What's new in 0.4
+
+- **New logo.** `assets/logo.png` is now the `[yevaunrlsder]` logo (cropped from `logo_v2.png`). In the template it sits exactly where your file placed it, bottom left. It also appears in the top bar and the favicon. Projects saved before 0.4 get their logo moved to the new spot when opened.
+- **Graduation sky look.** The page now uses the cover's palette: deep violet melting into magenta, rose and peach, with frosted dark-purple panels and a peach accent.
+- **New Beta badge.** The tilted tape is replaced by a straight, gradient pill that sits next to the logo in a top bar that stays fixed while you scroll.
+- **Downloads default to the template size**, 5000 x 2812.
+
+## Earlier: what was new in 0.3
 
 - **Template lines are on by default.** The amber dashed lines show where the PSD puts the text edge, baselines, cover edges and logo. Layers snap to them.
 - **Resize from the dot you grab.** Drag any corner dot and the opposite corner stays put. The dragged corner snaps to the grid, guides, template lines and other layers (hold Alt to turn that off).

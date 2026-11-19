@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KanyevaUnreleasder Thumbnail Generator (Beta)</title>
 <meta name="description" content="The official thumbnail generator for the KanyevaUnreleasder channel. Beta version.">
-<meta name="theme-color" content="#14161c">
+<meta name="theme-color" content="#4a2078">
 <link rel="icon" type="image/png" href="assets/favicon.png">
 
 <!-- Thumbnail font (loaded from your repository, declared in css/style.css) -->
@@ -20,14 +20,18 @@
 </head>
 <body>
 
-<header class="welcome">
-  <div class="brandrow">
-    <img class="brand-logo" src="assets/logo.png" alt="KanyevaUnreleasder logo">
-    <span class="tape" title="This tool is in beta">Beta</span>
+<div class="topbar">
+  <div class="topbar-in">
+    <img class="brand-logo" src="assets/logo.png" alt="[yevaunrlsder] logo">
+    <span class="beta-badge" title="This tool is in beta">Beta</span>
+    <span class="ver">Version 0.4</span>
   </div>
+</div>
+
+<header class="welcome">
   <h1>Welcome to the KanyevaUnreleasder Thumbnail Generator</h1>
   <p class="lede">Made only for the KanyevaUnreleasder channel. Pick an album cover, type your titles, then drag, resize and recolor everything until the thumbnail is right.</p>
-  <p class="betanote"><strong>Beta version 0.3.</strong> Updates are on the way, so expect new features and the occasional rough edge.</p>
+  <p class="betanote"><strong>Beta version 0.4.</strong> Updates are on the way, so expect new features and the occasional rough edge.</p>
 </header>
 
 <main class="app">
@@ -63,10 +67,10 @@
       <div class="export-opts">
         <label class="mini">Size
           <select id="expSize">
-            <option value="5000">5000 × 2812 (template size - RECOMMENDED)</option>
+            <option value="5000" selected>5000 × 2812 (template size)</option>
             <option value="3840">3840 × 2160 (4K)</option>
             <option value="1920">1920 × 1080 (Full HD)</option>
-            <option value="1280" selected>1280 × 720 (YouTube)</option>
+            <option value="1280">1280 × 720 (YouTube)</option>
           </select>
         </label>
         <p class="exportnote">Downloads as a PNG with a transparent background.</p>
@@ -89,7 +93,7 @@
   </aside>
 </main>
 
-<footer class="foot">KanyevaUnreleasder Thumbnail Generator, beta 0.3. Everything runs in your browser, nothing is uploaded.</footer>
+<footer class="foot">KanyevaUnreleasder Thumbnail Generator, beta 0.4. Everything runs in your browser, nothing is uploaded.</footer>
 
 <!-- Preset gallery -->
 <div class="modal" id="presetModal" hidden>
